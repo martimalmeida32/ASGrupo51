@@ -1,0 +1,14 @@
+﻿schema: spec-driven
+
+context: |
+  Projeto MobiCare (Associação Acompanhar - IPSS). Plataforma integrada de mobilidade assistida
+  para transporte e acompanhamento de pessoas seniores a consultas e exames de saúde.
+  Ambiente operacional: Aplicação web responsiva (mobile-first), offline-first com sincronização
+  automática de eventos de check-in (RNF-05) e leitura de cartões físicos por QR/NFC.
+  Entidades principais: Utente, Perfil de Mobilidade, Voluntário, Viagem (Ida/Regresso), Banco de Tempo.
+
+rules:
+  specs:
+    - "Usar os IDs da SRS nos nomes dos requirements (ex: UC-03) e regras de negócio (BR-nn)"
+    - "Usar os IDs dos casos de teste nos scenarios (ex: TC-UC03-01)"
+    - "Garantir sintaxe SHALL para requisitos e GIVEN/WHEN/THEN para cenários"
