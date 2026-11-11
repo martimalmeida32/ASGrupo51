@@ -5,6 +5,12 @@
 ### Requirement: UC-03-REQ-01 — Início de Viagem e Verificação de Mobilidade
 The system SHALL present the assigned trip details and verify strict mobility compatibility (BR-02) before allowing the volunteer to start the trip.
 
+#### Scenario: TC-UC03-03 — Verificação de mobilidade no início da viagem
+- **GIVEN** que o voluntário abre os detalhes da viagem atribuída
+- **WHEN** o voluntário tenta iniciar a deslocação
+- **THEN** o sistema verifica a compatibilidade do perfil de mobilidade (BR-02)
+- **AND** permite que a viagem avance registando as coordenadas iniciais
+
 ### Requirement: UC-03-REQ-02 — Check-in Presencial à Porta do Utente
 The system SHALL validate the physical presence of the user through QR/NFC scan of the MobiCare card and record timestamp and GPS coordinates upon pickup.
 
