@@ -1,5 +1,9 @@
 # Delta Spec: Time Bank (UC-10-S1)
 
+## Purpose
+
+Permitir ao voluntário consultar o saldo de horas creditadas, usar e transferir essas horas e comprovar oficialmente o seu contributo, com validação de saldo e proteção de dados.
+
 ## ADDED Requirements
 
 ### Requirement: UC-10-REQ-01 — Extrato e Histórico de Horas
@@ -20,10 +24,10 @@ The system SHALL allow the volunteer to transfer available hours to a previously
 - **WHEN** o voluntário seleciona «Transferir Horas», indica 3,0 horas e confirma a operação
 - **THEN** o saldo do voluntário é debitado para 1,5 horas
 - **AND** a conta do familiar recebe um crédito de 3,0 horas para pedidos de transporte futuros
-- **AND** o movimento é gravado no extrato
+- **AND** o movimento é gravado no extrato de ambas as contas
 
-### Requirement: UC-10-REQ-03 — Validação de Saldo e Bloqueio de Resgate
-The system SHALL validate the available balance before any transfer or redemption and SHALL block the operation with an «Saldo insuficiente» warning, leaving the balance unchanged, whenever the requested hours exceed the available balance (BR-07, E1).
+### Requirement: UC-10-REQ-03 — Validação de Saldo e Bloqueio de Operações
+The system SHALL validate the available balance before any transfer, redemption or eligible travel-expense submission and SHALL block the operation with a «Saldo insuficiente» warning, leaving the balance unchanged, whenever the requested hours exceed the available balance (BR-07, E1).
 
 #### Scenario: TC-UC10-03 — Bloqueio de resgate com saldo de horas insuficiente
 - **GIVEN** que o voluntário tem um saldo de 1,5 horas

@@ -1,5 +1,9 @@
 # Delta Spec: Volunteer Onboarding (UC-09-S1)
 
+## Purpose
+
+Permitir que candidatos se inscrevam como voluntários da rede MobiCare, que os documentos legalmente exigidos sejam verificados e que o voluntário só seja ativado após formação e primeira viagem acompanhada.
+
 ## ADDED Requirements
 
 ### Requirement: UC-09-REQ-01 — Submissão de Candidatura a Voluntário
@@ -36,7 +40,7 @@ The system SHALL allow the social technician to verify the submitted documents u
 - **AND** atualiza o estado do candidato para «Recusado»
 
 ### Requirement: UC-09-REQ-04 — Formação Inicial e Ativação do Voluntário
-The system SHALL only activate the volunteer after completion of the short training and the first accompanied trip, generating the compatibility profile used in trip assignment.
+The system SHALL only activate the volunteer after completion of the short training and the first accompanied trip, generating the compatibility profile used in trip assignment (BR-02).
 
 #### Scenario: TC-UC09-05 — Ativação após formação e primeira viagem acompanhada
 - **GIVEN** que a candidatura foi aprovada e o candidato está em formação inicial
