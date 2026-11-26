@@ -113,3 +113,19 @@ openspec list --specs
 - [Especificações consolidadas](openspec/specs/)
 - [Changes arquivadas](openspec/changes/archive/)
 - [Configuração OpenSpec](openspec/config.yaml)
+
+## Demonstração do primeiro incremento — Iteração 4
+
+A aplicação MobiCare foi validada através de testes manuais e de 12 testes automatizados com Playwright, todos aprovados.
+
+### 1. Registo do pedido e seleção de transporte
+![Registo do pedido](assets/Evidencias-Iter4/01-registo-pedido.png)
+
+### 2. Criação das viagens de ida e regresso
+![Criação de viagens](assets/Evidencias-Iter4/02-criacao-viagens.png)
+
+### 3. Identificação do utente na consola telefónica
+![Identificação do utente](assets/Evidencias-Iter4/03-identificacao-utente.png)
+
+### 4. Confirmação do pedido telefónico e SMS simulado
+![Confirmação por SMS](assets/Evidencias-Iter4/04-confirmacao-telefonica-sms.png)
