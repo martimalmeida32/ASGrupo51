@@ -88,6 +88,15 @@ db.exec(`
   );
   INSERT OR IGNORE INTO utentes (card_id, name, phone, mobility_profile)
     VALUES ('MC-0205', 'Maria Ferreira', '912345678', '["acompanhante"]');
+  CREATE TABLE IF NOT EXISTS audit_log (
+    audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT REFERENCES trip_requests(request_id),
+    card_id TEXT,
+    actor TEXT NOT NULL,
+    action TEXT NOT NULL,
+    justification TEXT NOT NULL,
+    created_at TEXT NOT NULL
+  );
 `);
 
 const columns = db.prepare('PRAGMA table_info(trip_requests)').all().map((column) => column.name);
@@ -184,6 +193,22 @@ function buildSmsConfirmation(requestId) {
     : null;
 }
 
+function buildAudit(requestId) {
+  return db
+    .prepare(
+      `SELECT card_id, actor, action, justification, created_at
+       FROM audit_log WHERE request_id = ? ORDER BY audit_id`
+    )
+    .all(requestId)
+    .map((item) => ({
+      cardId: item.card_id,
+      actor: item.actor,
+      action: item.action,
+      justification: item.justification,
+      createdAt: item.created_at
+    }));
+}
+
 function rowToPedido(row) {
   const needs = JSON.parse(row.mobility_profile);
   const notifications = buildNotifications(row.request_id);
@@ -205,6 +230,7 @@ function rowToPedido(row) {
     notification,
     notifications,
     smsConfirmation: buildSmsConfirmation(row.request_id),
+    audit: buildAudit(row.request_id),
     options: getCompatibleOptions(needs),
     selection: trips[0]
       ? {
@@ -351,6 +377,46 @@ app.get('/utentes', (req, res) => {
       mobilityProfile: mobilityProfileLabel(JSON.parse(utente.mobility_profile))
     }));
   return res.json({ utentes });
+});
+
+const utenteSchema = z.object({
+  name: z.string().min(2),
+  phone: z.string().min(9),
+  mobilityNeeds: z.array(z.enum(MOBILITY_NEED_IDS)).min(1)
+});
+
+app.post('/utentes', (req, res) => {
+  const parsed = utenteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Dados de inscrição inválidos.',
+      details: parsed.error.issues.map((issue) => issue.message)
+    });
+  }
+
+  const usedCards = new Set(
+    db.prepare('SELECT card_id FROM utentes').all().map((row) => row.card_id)
+  );
+  let nextNumber = 310;
+  while (usedCards.has(`MC-${String(nextNumber).padStart(4, '0')}`)) nextNumber += 1;
+  const cardId = `MC-${String(nextNumber).padStart(4, '0')}`;
+  const needs = [...new Set(parsed.data.mobilityNeeds)];
+  const phone = parsed.data.phone.replace(/\s/g, '');
+  const createdAt = nowIso();
+
+  db.prepare(
+    'INSERT INTO utentes (card_id, name, phone, mobility_profile) VALUES (?, ?, ?, ?)'
+  ).run(cardId, parsed.data.name.trim(), phone, JSON.stringify(needs));
+
+  return res.status(201).json({
+    cardId,
+    name: parsed.data.name.trim(),
+    phone,
+    mobilityNeeds: needs,
+    mobilityProfile: mobilityProfileLabel(needs),
+    active: true,
+    createdAt
+  });
 });
 
 app.post('/pedidos', (req, res) => {
@@ -585,7 +651,14 @@ const telefoneSchema = z.object({
   destinationId: z.string().min(1),
   consultationAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
   optionId: z.string().min(1),
-  publicSupportRequest: z.boolean().optional()
+  publicSupportRequest: z.boolean().optional(),
+  urgencyException: z
+    .object({
+      authorized: z.literal(true),
+      justification: z.string().min(10),
+      technician: z.string().min(2).optional()
+    })
+    .optional()
 });
 
 app.post('/pedidos/telefonicos', (req, res) => {
@@ -610,7 +683,10 @@ app.post('/pedidos/telefonicos', (req, res) => {
 
   const consultationAt = normalizeDateTime(input.consultationAt);
   const advance = validateAdvance(consultationAt, nowIso());
-  if (!advance.valid) return res.status(422).json({ error: advance.message });
+  const urgencyException = input.urgencyException;
+  if (!advance.valid && !urgencyException?.authorized) {
+    return res.status(422).json({ error: advance.message });
+  }
 
   const needs = JSON.parse(utente.mobility_profile);
   const option = getCompatibleOptions(needs).find((item) => item.id === input.optionId);
@@ -621,7 +697,12 @@ app.post('/pedidos/telefonicos', (req, res) => {
     destination.name,
     input.publicSupportRequest
   );
-  const validationLabel = publicSupport ? PUBLIC_SUPPORT_LABEL : 'Registo telefónico';
+  const validationLabel = [
+    publicSupport ? PUBLIC_SUPPORT_LABEL : null,
+    urgencyException ? 'Exceção urgente autorizada pela coordenação' : 'Registo telefónico'
+  ]
+    .filter(Boolean)
+    .join(' · ');
   const createdAt = nowIso();
   const count = db.prepare('SELECT COUNT(*) AS total FROM trip_requests').get().total;
   const requestId = `PED-${104 + count}`;
@@ -684,6 +765,20 @@ app.post('/pedidos/telefonicos', (req, res) => {
       createdAt
     );
     enviarSms(requestId, utente.phone, smsMessage, createdAt);
+    if (urgencyException) {
+      db.prepare(
+        `INSERT INTO audit_log (
+          request_id, card_id, actor, action, justification, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        requestId,
+        utente.card_id,
+        urgencyException.technician?.trim() || 'Técnico da IPSS',
+        'EXCECAO_BR_01',
+        urgencyException.justification.trim(),
+        createdAt
+      );
+    }
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');

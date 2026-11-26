@@ -20,12 +20,38 @@ export interface UtenteResponse {
   mobilityProfile: string;
 }
 
+export interface UtenteRegistrationInput {
+  name: string;
+  phone: string;
+  mobilityNeeds: string[];
+}
+
+export interface UtenteCreatedResponse extends UtenteResponse {
+  active: boolean;
+  createdAt: string;
+}
+
+export interface UrgencyExceptionInput {
+  authorized: true;
+  justification: string;
+  technician?: string;
+}
+
+export interface AuditEntry {
+  cardId: string;
+  actor: string;
+  action: string;
+  justification: string;
+  createdAt: string;
+}
+
 export interface CreateTelephonePedidoInput {
   cardId: string;
   destinationId: string;
   consultationAt: string;
   optionId: string;
   publicSupportRequest?: boolean;
+  urgencyException?: UrgencyExceptionInput;
 }
 
 export interface TransportOption {
@@ -71,6 +97,7 @@ export interface PedidoResponse {
   notification: NotificationInfo | null;
   notifications: NotificationInfo[];
   smsConfirmation: NotificationInfo | null;
+  audit: AuditEntry[];
   options: TransportOption[];
   selection: SelectionInfo | null;
   trips: TripInfo[];

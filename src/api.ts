@@ -3,6 +3,8 @@ import type {
   CreateTelephonePedidoInput,
   PedidoResponse,
   TransportOption,
+  UtenteCreatedResponse,
+  UtenteRegistrationInput,
   UtenteResponse
 } from './types';
 
@@ -27,6 +29,17 @@ export async function pesquisarUtentes(query: string): Promise<UtenteResponse[]>
   const response = await fetch(`/utentes?q=${encodeURIComponent(query)}`);
   const payload = (await readJson(response)) as { utentes: UtenteResponse[] };
   return payload.utentes;
+}
+
+export async function inscreverUtente(
+  input: UtenteRegistrationInput
+): Promise<UtenteCreatedResponse> {
+  const response = await fetch('/utentes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return (await readJson(response)) as UtenteCreatedResponse;
 }
 
 export async function registrarPedidoTelefonico(

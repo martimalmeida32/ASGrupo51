@@ -1,13 +1,18 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { pesquisarUtentes, registrarPedidoTelefonico } from './api';
+import { inscreverUtente, pesquisarUtentes, registrarPedidoTelefonico } from './api';
 import {
   DESTINATIONS,
   getCompatibleOptions,
+  MOBILITY_NEEDS,
   PUBLIC_SUPPORT_LABEL,
   PUBLIC_SUPPORT_MESSAGE
 } from '../shared/rules.js';
-import type { PedidoResponse, UtenteResponse } from './types';
+import type {
+  PedidoResponse,
+  UtenteCreatedResponse,
+  UtenteResponse
+} from './types';
 
 function formatDateTime(iso: string) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso)) return iso;
@@ -21,6 +26,16 @@ export default function TechnicianConsole() {
   const [consultationAt, setConsultationAt] = useState('');
   const [optionId, setOptionId] = useState('');
   const [publicSupportRequest, setPublicSupportRequest] = useState(false);
+  const [showInscricao, setShowInscricao] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newNeeds, setNewNeeds] = useState<string[]>([]);
+  const [inscricaoResult, setInscricaoResult] = useState<UtenteCreatedResponse | null>(null);
+  const [inscricaoError, setInscricaoError] = useState('');
+  const [inscrevendo, setInscrevendo] = useState(false);
+  const [urgencyException, setUrgencyException] = useState(false);
+  const [justification, setJustification] = useState('');
+  const [technician, setTechnician] = useState('Técnico da IPSS');
   const [searchError, setSearchError] = useState('');
   const [error, setError] = useState('');
   const [searching, setSearching] = useState(false);
@@ -50,6 +65,42 @@ export default function TechnicianConsole() {
     }
   }
 
+  function toggleNewNeed(id: string) {
+    setNewNeeds((current) =>
+      current.includes(id) ? current.filter((need) => need !== id) : [...current, id]
+    );
+  }
+
+  async function handleInscricao(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setInscricaoError('');
+    if (!newName.trim() || newPhone.trim().length < 9 || newNeeds.length === 0) {
+      setInscricaoError('Preencha o nome, o telemóvel e pelo menos uma necessidade de mobilidade.');
+      return;
+    }
+
+    setInscrevendo(true);
+    try {
+      const created = await inscreverUtente({
+        name: newName.trim(),
+        phone: newPhone.trim(),
+        mobilityNeeds: newNeeds
+      });
+      setInscricaoResult(created);
+      setUtente(created);
+      setQuery(created.cardId);
+      setOptionId('');
+      setResult(null);
+      setShowInscricao(false);
+    } catch (cause) {
+      setInscricaoError(
+        cause instanceof Error ? cause.message : 'Não foi possível inscrever o utente.'
+      );
+    } finally {
+      setInscrevendo(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
@@ -61,6 +112,10 @@ export default function TechnicianConsole() {
       setError('Preencha o destino, a data da consulta e a opção de transporte.');
       return;
     }
+    if (urgencyException && justification.trim().length < 10) {
+      setError('Introduza a fundamentação da exceção urgente (mínimo 10 caracteres).');
+      return;
+    }
 
     setLoading(true);
     try {
@@ -69,7 +124,14 @@ export default function TechnicianConsole() {
         destinationId,
         consultationAt,
         optionId,
-        publicSupportRequest
+        publicSupportRequest,
+        urgencyException: urgencyException
+          ? {
+              authorized: true,
+              justification: justification.trim(),
+              technician: technician.trim()
+            }
+          : undefined
       });
       setResult(created);
     } catch (cause) {
@@ -107,6 +169,69 @@ export default function TechnicianConsole() {
           </p>
         ) : null}
       </form>
+
+      <button
+        type="button"
+        className="option"
+        onClick={() => setShowInscricao((current) => !current)}
+        data-testid="abrir-inscricao"
+      >
+        {showInscricao ? 'Fechar inscrição' : 'Inscrever novo utente'}
+      </button>
+
+      {showInscricao ? (
+        <form onSubmit={handleInscricao} className="card">
+          <fieldset>
+            <legend>Inscrição inicial (dados essenciais)</legend>
+            <input
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              placeholder="Nome do utente"
+              aria-label="Nome do utente"
+              data-testid="inscricao-name"
+            />
+            <input
+              value={newPhone}
+              onChange={(event) => setNewPhone(event.target.value)}
+              placeholder="Telemóvel"
+              aria-label="Telemóvel do utente"
+              data-testid="inscricao-phone"
+            />
+            <div className="needs">
+              {MOBILITY_NEEDS.map((need) => (
+                <label className="choice" key={need.id}>
+                  <input
+                    type="checkbox"
+                    checked={newNeeds.includes(need.id)}
+                    onChange={() => toggleNewNeed(need.id)}
+                    data-testid={`inscricao-need-${need.id}`}
+                  />
+                  {need.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+          {inscricaoError ? (
+            <p role="alert" className="error" data-testid="inscricao-error">
+              {inscricaoError}
+            </p>
+          ) : null}
+          <button type="submit" className="primary" disabled={inscrevendo} data-testid="inscricao-submit">
+            {inscrevendo ? 'A inscrever…' : 'Inscrever e emitir cartão'}
+          </button>
+        </form>
+      ) : null}
+
+      {inscricaoResult ? (
+        <section className="card result" data-testid="inscricao-result">
+          <h2>Utente inscrito</h2>
+          <p className="success" data-testid="inscricao-card">
+            Cartão #{inscricaoResult.cardId} ativo
+          </p>
+          <p data-testid="inscricao-name-result">{inscricaoResult.name}</p>
+          <p data-testid="inscricao-profile-result">{inscricaoResult.mobilityProfile}</p>
+        </section>
+      ) : null}
 
       {utente ? (
         <>
@@ -166,6 +291,36 @@ export default function TechnicianConsole() {
             </fieldset>
 
             <fieldset>
+              <legend>Exceção à antecedência mínima (BR-01)</legend>
+              <label className="choice">
+                <input
+                  type="checkbox"
+                  checked={urgencyException}
+                  onChange={(event) => setUrgencyException(event.target.checked)}
+                  data-testid="telefone-urgencia"
+                />
+                Exceção urgente autorizada pela coordenação
+              </label>
+              {urgencyException ? (
+                <>
+                  <input
+                    value={technician}
+                    onChange={(event) => setTechnician(event.target.value)}
+                    aria-label="Técnico autorizado"
+                    data-testid="telefone-tecnico"
+                  />
+                  <textarea
+                    value={justification}
+                    onChange={(event) => setJustification(event.target.value)}
+                    placeholder="Fundamentação da exceção"
+                    aria-label="Fundamentação da exceção"
+                    data-testid="telefone-justificacao"
+                  />
+                </>
+              ) : null}
+            </fieldset>
+
+            <fieldset>
               <legend>Opções compatíveis (usando o perfil guardado)</legend>
               <ol className="options-list" data-testid="telefone-options">
                 {options.map((option) => (
@@ -209,6 +364,8 @@ export default function TechnicianConsole() {
             <dd data-testid="telefone-request-status">{result.status}</dd>
             <dt>Perfil de mobilidade</dt>
             <dd data-testid="telefone-request-profile">{result.mobilityProfile}</dd>
+            <dt>Validação</dt>
+            <dd data-testid="telefone-validation-label">{result.validationLabel}</dd>
           </dl>
           <ul className="options-list" data-testid="telefone-trips">
             {result.trips.map((trip) => (
@@ -220,6 +377,16 @@ export default function TechnicianConsole() {
               </li>
             ))}
           </ul>
+          {result.audit.length > 0 ? (
+            <section className="card" data-testid="telefone-audit">
+              <h3>Auditoria da exceção</h3>
+              {result.audit.map((entry) => (
+                <p key={`${entry.action}-${entry.createdAt}`} data-testid="telefone-audit-entry">
+                  {entry.actor} — {entry.action}: {entry.justification}
+                </p>
+              ))}
+            </section>
+          ) : null}
           {result.smsConfirmation ? (
             <p className="success" data-testid="telefone-sms">
               SMS enviado para {result.smsConfirmation.recipient} — {result.smsConfirmation.message}
