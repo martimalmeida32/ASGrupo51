@@ -10,3 +10,5 @@
 * **Jira / Ambiente de Gestão:** https://ua-projeto-as.atlassian.net/jira/software/projects/SCRUM/boards/1/backlog
 * **Repositório Git:** https://github.com/martimalmeida32/ASGrupo51
 * **Tag da Iteração 1:** `entrega-iter1`
+* **Tag da Iteração 2:** `entrega-iter2`
+* **Tag da Iteração 3:** `entrega-iter3`
