@@ -26,6 +26,8 @@ export const CONFIRMED_STATUS = 'CONFIRMADO';
 export const CONFIRMED_STATUS_LABEL = 'Confirmado';
 export const TRANSPORT_CASCADE = ['voluntario', 'viatura-adaptada', 'operador-profissional'];
 export const ADVANCE_LIMIT_MS = 24 * 60 * 60 * 1000;
+export const CONSULTATION_DURATION_MS = 45 * 60 * 1000;
+export const RETURN_TRIGGER_MS = 25 * 60 * 1000;
 export const IPSS_SUPPORT_PHONE = '+351 234 000 000';
 export const PUBLIC_SUPPORT_LABEL = 'Isenção de taxas moderadoras por insuficiência económica';
 export const PUBLIC_SUPPORT_MESSAGE = 'Encaminhamento prioritário para TNUD / Táxi Saúde Municipal';
@@ -35,6 +37,18 @@ export function normalizeDateTime(value) {
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return `${value}:00Z`;
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)) return `${value}Z`;
   return value;
+}
+
+export function consultaFimPrevisto(consultationAt) {
+  const inicio = new Date(normalizeDateTime(consultationAt));
+  if (Number.isNaN(inicio.getTime())) return '';
+  return new Date(inicio.getTime() + CONSULTATION_DURATION_MS).toISOString();
+}
+
+export function regressoTriggerAt(consultationAt) {
+  const fim = consultaFimPrevisto(consultationAt);
+  if (!fim) return '';
+  return new Date(new Date(fim).getTime() - RETURN_TRIGGER_MS).toISOString();
 }
 
 export function addDaysToDateTime(value, days) {

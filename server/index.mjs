@@ -7,6 +7,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import {
   addDaysToDateTime,
+  consultaFimPrevisto,
   CUSTOM_DESTINATION_ID,
   CUSTOM_DESTINATION_LABEL,
   CONFIRMED_STATUS,
@@ -20,6 +21,7 @@ import {
   getCompatibleOptions,
   mobilityProfileLabel,
   normalizeDateTime,
+  regressoTriggerAt,
   shouldFlagPublicSupport,
   validateAdvance
 } from '../shared/rules.js';
@@ -50,7 +52,8 @@ db.exec(`
     series_id TEXT,
     custom_destination INTEGER NOT NULL DEFAULT 0,
     validation_label TEXT,
-    public_support_flag INTEGER NOT NULL DEFAULT 0
+    public_support_flag INTEGER NOT NULL DEFAULT 0,
+    planned_end TEXT
   );
   CREATE TABLE IF NOT EXISTS notifications (
     notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,8 +69,16 @@ db.exec(`
     transport_option_id TEXT NOT NULL,
     status TEXT NOT NULL,
     pickup_at TEXT,
+    triggered_at TEXT,
     created_at TEXT NOT NULL,
     UNIQUE (request_id, direction)
+  );
+  CREATE TABLE IF NOT EXISTS sms_messages (
+    sms_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id TEXT NOT NULL REFERENCES trip_requests(request_id),
+    recipient TEXT NOT NULL,
+    message TEXT NOT NULL,
+    sent_at TEXT NOT NULL
   );
 `);
 
@@ -82,6 +93,13 @@ if (!columns.includes('validation_label')) {
 if (!columns.includes('public_support_flag')) {
   db.exec('ALTER TABLE trip_requests ADD COLUMN public_support_flag INTEGER NOT NULL DEFAULT 0');
 }
+if (!columns.includes('planned_end')) {
+  db.exec('ALTER TABLE trip_requests ADD COLUMN planned_end TEXT');
+}
+const tripColumns = db.prepare('PRAGMA table_info(trips)').all().map((column) => column.name);
+if (!tripColumns.includes('triggered_at')) {
+  db.exec('ALTER TABLE trips ADD COLUMN triggered_at TEXT');
+}
 
 const pedidoSchema = z.object({
   submissionId: z.string().min(1).optional(),
@@ -95,13 +113,20 @@ const pedidoSchema = z.object({
   publicSupportRequest: z.boolean().optional()
 });
 
+let clockOverride = null;
+
 function nowIso() {
+  if (clockOverride) return clockOverride;
   const configured = process.env.MOBICARE_NOW;
   if (configured) {
     const date = new Date(configured);
     if (!Number.isNaN(date.getTime())) return date.toISOString();
   }
   return new Date().toISOString();
+}
+
+function isTestEnvironment() {
+  return process.env.MOBICARE_TEST_CLOCK === '1';
 }
 
 function statusLabel(status) {
@@ -113,7 +138,7 @@ function statusLabel(status) {
 function buildTrips(requestId) {
   return db
     .prepare(
-      'SELECT trip_id, direction, transport_option_id, status, pickup_at, created_at FROM trips WHERE request_id = ? ORDER BY trip_id'
+      'SELECT trip_id, direction, transport_option_id, status, pickup_at, triggered_at, created_at FROM trips WHERE request_id = ? ORDER BY trip_id'
     )
     .all(requestId)
     .map((trip) => ({
@@ -122,17 +147,28 @@ function buildTrips(requestId) {
       transportOptionId: trip.transport_option_id,
       status: trip.status,
       pickupAt: trip.pickup_at,
+      triggeredAt: trip.triggered_at,
       createdAt: trip.created_at
+    }));
+}
+
+function buildNotifications(requestId) {
+  return db
+    .prepare(
+      'SELECT recipient, message, created_at FROM notifications WHERE request_id = ? ORDER BY notification_id'
+    )
+    .all(requestId)
+    .map((notification) => ({
+      recipient: notification.recipient,
+      message: notification.message,
+      sentAt: notification.created_at
     }));
 }
 
 function rowToPedido(row) {
   const needs = JSON.parse(row.mobility_profile);
-  const notification = db
-    .prepare(
-      'SELECT recipient, message, created_at FROM notifications WHERE request_id = ? ORDER BY notification_id LIMIT 1'
-    )
-    .get(row.request_id);
+  const notifications = buildNotifications(row.request_id);
+  const notification = notifications[0] ?? null;
   const trips = buildTrips(row.request_id);
 
   return {
@@ -141,18 +177,14 @@ function rowToPedido(row) {
     mobilityProfile: mobilityProfileLabel(needs),
     destination: row.destination,
     consultationAt: row.consultation_at,
+    plannedEnd: row.planned_end ?? consultaFimPrevisto(row.consultation_at),
     seriesId: row.series_id ?? `SER-${row.request_id}`,
     customDestination: Boolean(row.custom_destination),
     validationLabel: row.validation_label ?? null,
     publicSupportEligible: Boolean(row.public_support_flag),
     publicSupportMessage: row.public_support_flag ? PUBLIC_SUPPORT_MESSAGE : null,
-    notification: notification
-      ? {
-          recipient: notification.recipient,
-          message: notification.message,
-          sentAt: notification.created_at
-        }
-      : null,
+    notification,
+    notifications,
     options: getCompatibleOptions(needs),
     selection: trips[0]
       ? {
@@ -181,6 +213,97 @@ function findPedido(requestId) {
 function findSubmission(submissionId) {
   const row = db.prepare('SELECT * FROM trip_requests WHERE submission_id = ?').get(submissionId);
   return row ? buildSeriesResponse(row) : null;
+}
+
+function enviarSms(requestId, recipient, message, sentAt) {
+  db.prepare(
+    'INSERT INTO sms_messages (request_id, recipient, message, sent_at) VALUES (?, ?, ?, ?)'
+  ).run(requestId, recipient, message, sentAt);
+}
+
+function processarRegressos() {
+  const startedAt = Date.now();
+  const now = nowIso();
+  const candidatos = db
+    .prepare(
+      `SELECT t.trip_id, t.request_id, t.transport_option_id, t.pickup_at,
+              r.consultation_at, r.planned_end, r.destination, r.mobility_profile, r.user_id
+       FROM trips t
+       JOIN trip_requests r ON r.request_id = t.request_id
+       WHERE t.direction = 'RETURN'
+         AND t.status = 'ESTAFETA_FLEXIVEL'
+         AND t.triggered_at IS NULL
+         AND r.status = ?
+         AND EXISTS (
+           SELECT 1 FROM trips o
+           WHERE o.request_id = t.request_id
+             AND o.direction = 'OUTBOUND'
+             AND o.status = 'CONCLUIDA'
+         )
+       ORDER BY t.trip_id`
+    )
+    .all(CONFIRMED_STATUS);
+  let acionados = 0;
+
+  for (const trip of candidatos) {
+    const trigger = regressoTriggerAt(trip.consultation_at);
+    const plannedEnd = trip.planned_end ?? consultaFimPrevisto(trip.consultation_at);
+    if (!trigger || !plannedEnd || Date.parse(now) < Date.parse(trigger)) continue;
+
+    const options = getCompatibleOptions(JSON.parse(trip.mobility_profile));
+    const driver = options.find((option) => option.id === trip.transport_option_id);
+    const driverLabel = driver?.label ?? trip.transport_option_id;
+    const pickupTime = plannedEnd.slice(11, 16);
+    const sentAt = now;
+
+    db.exec('BEGIN');
+    try {
+      const atualizacao = db
+        .prepare(
+          `UPDATE trips
+           SET status = 'EM_ROTA', pickup_at = ?, triggered_at = ?
+           WHERE trip_id = ? AND triggered_at IS NULL`
+        )
+        .run(plannedEnd, sentAt, trip.trip_id);
+      if (atualizacao.changes === 0) {
+        db.exec('ROLLBACK');
+        continue;
+      }
+
+      const insertNotification = db.prepare(
+        'INSERT INTO notifications (request_id, recipient, message, created_at) VALUES (?, ?, ?, ?)'
+      );
+      insertNotification.run(
+        trip.request_id,
+        'voluntario@acompanhar.pt',
+        `Regresso ${trip.trip_id} ativado: inicie a deslocação para ${trip.destination} com recolha prevista às ${pickupTime}.`,
+        sentAt
+      );
+      insertNotification.run(
+        trip.request_id,
+        'utente@acompanhar.pt',
+        `O seu regresso ${trip.trip_id} foi acionado. Recolha prevista às ${pickupTime} por ${driverLabel}.`,
+        sentAt
+      );
+      insertNotification.run(
+        trip.request_id,
+        'familiar@acompanhar.pt',
+        `O regresso de ${trip.user_id} foi acionado. Recolha prevista às ${pickupTime} por ${driverLabel}.`,
+        sentAt
+      );
+
+      const sms = `MobiCare: regresso ativado, recolha prevista às ${pickupTime} por ${driverLabel}.`;
+      enviarSms(trip.request_id, '+351912000014', sms, sentAt);
+      enviarSms(trip.request_id, '+351912000015', sms, sentAt);
+      db.exec('COMMIT');
+      acionados += 1;
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  }
+
+  return { now, candidatos: candidatos.length, acionados, durationMs: Date.now() - startedAt };
 }
 
 const app = express();
@@ -253,8 +376,8 @@ app.post('/pedidos', (req, res) => {
         `INSERT INTO trip_requests (
           request_id, submission_id, user_id, requester_type, destination_id,
           destination, consultation_at, mobility_profile, status, created_at,
-          series_id, custom_destination, validation_label, public_support_flag
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          series_id, custom_destination, validation_label, public_support_flag, planned_end
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         requestId,
         submissionForRow,
@@ -269,7 +392,8 @@ app.post('/pedidos', (req, res) => {
         seriesId,
         isCustom ? 1 : 0,
         validationLabel,
-        publicSupport ? 1 : 0
+        publicSupport ? 1 : 0,
+        consultaFimPrevisto(consultationAt)
       );
       db.prepare(
         'INSERT INTO notifications (request_id, recipient, message, created_at) VALUES (?, ?, ?, ?)'
@@ -365,10 +489,60 @@ app.get('/pedidos/:id', (req, res) => {
   return res.json(pedido);
 });
 
+app.post('/viagens/:id/concluir', (req, res) => {
+  const trip = db.prepare('SELECT * FROM trips WHERE trip_id = ?').get(req.params.id);
+  if (!trip) return res.status(404).json({ error: 'Viagem não encontrada.' });
+  if (trip.direction !== 'OUTBOUND') {
+    return res.status(400).json({ error: 'Apenas viagens de ida podem ser concluídas.' });
+  }
+  db.prepare("UPDATE trips SET status = 'CONCLUIDA' WHERE trip_id = ?").run(trip.trip_id);
+  return res.json(findPedido(trip.request_id));
+});
+
+app.post('/regressos/processar', (_req, res) => {
+  if (!isTestEnvironment()) {
+    return res.status(404).json({ error: 'Recurso não encontrado.' });
+  }
+  return res.json(processarRegressos());
+});
+
+app.get('/sms', (_req, res) => {
+  if (!isTestEnvironment()) {
+    return res.status(404).json({ error: 'Recurso não encontrado.' });
+  }
+  const messages = db
+    .prepare(
+      'SELECT request_id, recipient, message, sent_at FROM sms_messages ORDER BY sms_id'
+    )
+    .all()
+    .map((item) => ({
+      requestId: item.request_id,
+      recipient: item.recipient,
+      message: item.message,
+      sentAt: item.sent_at
+    }));
+  return res.json({ messages });
+});
+
+app.post('/test/clock', (req, res) => {
+  if (!isTestEnvironment()) {
+    return res.status(404).json({ error: 'Recurso não encontrado.' });
+  }
+  const parsed = z.object({ now: z.string().min(1) }).safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: 'Relógio inválido.' });
+  const date = new Date(parsed.data.now);
+  if (Number.isNaN(date.getTime())) return res.status(400).json({ error: 'Relógio inválido.' });
+  clockOverride = date.toISOString();
+  return res.json({ now: clockOverride });
+});
+
 app.use('/pedidos', (_req, res) => res.status(404).json({ error: 'Pedido não encontrado.' }));
 
 app.use(express.static(join(root, 'dist')));
 app.get(/.*/, (_req, res) => res.sendFile(join(root, 'dist', 'index.html')));
+
+const returnTimer = setInterval(() => processarRegressos(), 1000);
+returnTimer.unref();
 
 app.listen(port, '127.0.0.1', () => {
   console.log(`MobiCare API e interface em http://127.0.0.1:${port}`);

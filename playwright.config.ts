@@ -23,7 +23,8 @@ export default defineConfig({
       PORT: '3001',
       MOBICARE_DB: join(process.cwd(), 'data', 'test.db'),
       MOBICARE_RESET_DB: '1',
-      MOBICARE_NOW: '2026-11-20T09:00:00Z'
+      MOBICARE_NOW: '2026-11-20T16:00:00Z',
+      MOBICARE_TEST_CLOCK: '1'
     }
   }
 });

@@ -30,6 +30,7 @@ export interface TripInfo {
   transportOptionId: string;
   status: string;
   pickupAt: string | null;
+  triggeredAt: string | null;
   createdAt: string;
 }
 
@@ -45,12 +46,14 @@ export interface PedidoResponse {
   mobilityProfile: string;
   destination: string;
   consultationAt: string;
+  plannedEnd: string;
   seriesId: string;
   customDestination: boolean;
   validationLabel: string | null;
   publicSupportEligible: boolean;
   publicSupportMessage: string | null;
   notification: NotificationInfo | null;
+  notifications: NotificationInfo[];
   options: TransportOption[];
   selection: SelectionInfo | null;
   trips: TripInfo[];
