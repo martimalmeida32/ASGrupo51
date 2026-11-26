@@ -1,5 +1,15 @@
 # Tasks
-- [ ] 1.1 Criar modelo de dados `TripRequest` com campos de mobilidade e estado inicial
-- [ ] 1.2 Desenvolver ecrã de pedido passo-a-passo com catálogo de unidades de saúde
-- [ ] 1.3 Implementar validação temporal de 24 horas de antecedência mínima (BR-01)
-- [ ] 1.4 Testar submissão com sucesso e transição para «A escolher o meio» (TC-UC01-01)
+
+## 1. Implementação
+
+- [ ] 1.1 Criar o modelo de dados TripRequest em SQLite.
+- [ ] 1.2 Desenvolver o formulário de pedido em React com TypeScript.
+- [ ] 1.3 Implementar a operação POST /pedidos.
+- [ ] 1.4 Implementar a validação da antecedência mínima de 24 horas (BR-01).
+- [ ] 1.5 Associar o perfil de mobilidade e atribuir o estado inicial «A escolher o meio».
+- [ ] 1.6 Notificar a coordenação e disponibilizar as opções de transporte compatíveis.
+
+## 2. Testes
+
+- [ ] 2.1 TC-UC01-01 — Implementar teste automático com Playwright, utilizando os dados e resultados esperados da SRS.
+- [ ] 2.2 Executar o teste e validar o resultado.
