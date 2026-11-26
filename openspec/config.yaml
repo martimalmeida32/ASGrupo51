@@ -34,6 +34,9 @@ context: |
   slice às operações e aos módulos envolvidos. O envio de SMS utiliza
   um adaptador que pode ser substituído por um simulador durante os testes.
 
+  A arquitetura global está documentada em openspec/architecture.md.
+  Consultar este documento antes de propor, desenhar ou implementar
+  alterações ao sistema, respeitando as decisões arquiteturais e os ADR.
 rules:
   proposal:
     - "Identificar o slice, o objetivo da alteração e os casos de teste da SRS abrangidos."
