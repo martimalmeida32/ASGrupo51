@@ -24,4 +24,4 @@ The system SHALL locally cache valid trip requests when offline and automaticall
 #### Scenario: TC-UC01-05 — Gravação local e sincronização automática de pedido em modo offline [caso de falha de rede]
 - **GIVEN** o dispositivo móvel do familiar perde a ligação de dados móveis antes da submissão de um pedido válido para 28/11/2026 às 09:30
 - **WHEN** o utilizador clica em «Confirmar Pedido» sem rede e, 2 minutos mais tarde, o telemóvel restabelece a conectividade à internet
-- **THEN** a aplicação armazena os dados localmente na base SQLite com o estado «Pendente de sincronização» (RNF-05) e envia automaticamente o pedido para o servidor central sem duplicação de registos assim que deteta ligação
+- **THEN** a aplicação armazena os dados localmente no IndexedDB com o estado «Pendente de sincronização» (RNF-05) e envia automaticamente o pedido para o servidor central sem duplicação de registos assim que deteta ligação.
