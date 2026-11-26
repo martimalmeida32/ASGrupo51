@@ -119,7 +119,7 @@ openspec list --specs
 
 ## Demonstração do primeiro incremento — Iteração 4
 
-A aplicação MobiCare foi validada através de testes manuais e de 12 testes automatizados com Playwright, todos aprovados.
+A aplicação MobiCare foi validada através de testes manuais e de 17 testes automatizados com Playwright, todos aprovados.
 
 ### 1. Registo do pedido e seleção de transporte
 ![Registo do pedido](assets/Evidencias-Iter4/01-registo-pedido.png)
