@@ -1,4 +1,10 @@
-import type { CreatePedidoInput, PedidoResponse, TransportOption } from './types';
+import type {
+  CreatePedidoInput,
+  CreateTelephonePedidoInput,
+  PedidoResponse,
+  TransportOption,
+  UtenteResponse
+} from './types';
 
 async function readJson(response: Response) {
   const payload = await response.json();
@@ -10,6 +16,23 @@ async function readJson(response: Response) {
 
 export async function criarPedido(input: CreatePedidoInput): Promise<PedidoResponse> {
   const response = await fetch('/pedidos', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return (await readJson(response)) as PedidoResponse;
+}
+
+export async function pesquisarUtentes(query: string): Promise<UtenteResponse[]> {
+  const response = await fetch(`/utentes?q=${encodeURIComponent(query)}`);
+  const payload = (await readJson(response)) as { utentes: UtenteResponse[] };
+  return payload.utentes;
+}
+
+export async function registrarPedidoTelefonico(
+  input: CreateTelephonePedidoInput
+): Promise<PedidoResponse> {
+  const response = await fetch('/pedidos/telefonicos', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input)

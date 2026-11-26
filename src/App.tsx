@@ -3,6 +3,7 @@ import type { FormEvent } from 'react';
 import { criarPedido, obterOpcoes, selecionarTransporte } from './api';
 import { enqueuePedido, listarPedidosPendentes, removerPedidoPendente } from './offline';
 import type { PedidoPendente } from './offline';
+import TechnicianConsole from './TechnicianConsole';
 import type { CreatePedidoInput, PedidoResponse, RequesterType } from './types';
 import {
   CUSTOM_DESTINATION_ID,
@@ -21,6 +22,7 @@ export default function App() {
   const submissionId = useRef(
     globalThis.crypto?.randomUUID?.() ?? `sub-${Date.now()}`
   );
+  const [channel, setChannel] = useState<'utente' | 'telefone'>('utente');
   const [requesterType, setRequesterType] = useState<RequesterType>('proprio-utente');
   const [userId] = useState('MC-0142');
   const [search, setSearch] = useState('');
@@ -227,6 +229,25 @@ export default function App() {
         </span>
       </header>
 
+      <nav className="channel-tabs" aria-label="Canal de atendimento">
+        <button
+          type="button"
+          className={channel === 'utente' ? 'option selected' : 'option'}
+          onClick={() => setChannel('utente')}
+          data-testid="tab-utente"
+        >
+          Portal do utente
+        </button>
+        <button
+          type="button"
+          className={channel === 'telefone' ? 'option selected' : 'option'}
+          onClick={() => setChannel('telefone')}
+          data-testid="tab-telefone"
+        >
+          Consola telefónica
+        </button>
+      </nav>
+
       <p
         className={online ? 'connection online' : 'connection offline'}
         data-testid="connection-status"
@@ -253,7 +274,9 @@ export default function App() {
         </section>
       ) : null}
 
-      <h1>Pedir acompanhamento a consulta</h1>
+      {channel === 'utente' ? (
+        <>
+          <h1>Pedir acompanhamento a consulta</h1>
       <p className="lead">
         Registe o destino, a data da consulta e as necessidades de mobilidade.
       </p>
@@ -501,7 +524,11 @@ export default function App() {
             </section>
           ) : null}
         </section>
-      ) : null}
+          ) : null}
+        </>
+      ) : (
+        <TechnicianConsole />
+      )}
     </main>
   );
 }

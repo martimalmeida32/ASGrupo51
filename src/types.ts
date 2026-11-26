@@ -12,6 +12,22 @@ export interface CreatePedidoInput {
   publicSupportRequest?: boolean;
 }
 
+export interface UtenteResponse {
+  cardId: string;
+  name: string;
+  phone: string;
+  mobilityNeeds: string[];
+  mobilityProfile: string;
+}
+
+export interface CreateTelephonePedidoInput {
+  cardId: string;
+  destinationId: string;
+  consultationAt: string;
+  optionId: string;
+  publicSupportRequest?: boolean;
+}
+
 export interface TransportOption {
   id: string;
   label: string;
@@ -54,6 +70,7 @@ export interface PedidoResponse {
   publicSupportMessage: string | null;
   notification: NotificationInfo | null;
   notifications: NotificationInfo[];
+  smsConfirmation: NotificationInfo | null;
   options: TransportOption[];
   selection: SelectionInfo | null;
   trips: TripInfo[];

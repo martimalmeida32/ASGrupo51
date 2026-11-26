@@ -80,6 +80,14 @@ db.exec(`
     message TEXT NOT NULL,
     sent_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS utentes (
+    card_id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    mobility_profile TEXT NOT NULL
+  );
+  INSERT OR IGNORE INTO utentes (card_id, name, phone, mobility_profile)
+    VALUES ('MC-0205', 'Maria Ferreira', '912345678', '["acompanhante"]');
 `);
 
 const columns = db.prepare('PRAGMA table_info(trip_requests)').all().map((column) => column.name);
@@ -165,6 +173,17 @@ function buildNotifications(requestId) {
     }));
 }
 
+function buildSmsConfirmation(requestId) {
+  const sms = db
+    .prepare(
+      'SELECT recipient, message, sent_at FROM sms_messages WHERE request_id = ? ORDER BY sms_id DESC LIMIT 1'
+    )
+    .get(requestId);
+  return sms
+    ? { recipient: sms.recipient, message: sms.message, sentAt: sms.sent_at }
+    : null;
+}
+
 function rowToPedido(row) {
   const needs = JSON.parse(row.mobility_profile);
   const notifications = buildNotifications(row.request_id);
@@ -185,6 +204,7 @@ function rowToPedido(row) {
     publicSupportMessage: row.public_support_flag ? PUBLIC_SUPPORT_MESSAGE : null,
     notification,
     notifications,
+    smsConfirmation: buildSmsConfirmation(row.request_id),
     options: getCompatibleOptions(needs),
     selection: trips[0]
       ? {
@@ -308,6 +328,30 @@ function processarRegressos() {
 
 const app = express();
 app.use(express.json());
+
+app.get('/utentes', (req, res) => {
+  const query = String(req.query.q ?? '').trim().toLocaleLowerCase('pt-PT');
+  const digits = query.replace(/\D/g, '');
+  const utentes = db
+    .prepare('SELECT card_id, name, phone, mobility_profile FROM utentes')
+    .all()
+    .filter((utente) => {
+      if (!query) return true;
+      return (
+        utente.card_id.toLocaleLowerCase('pt-PT').includes(query) ||
+        utente.name.toLocaleLowerCase('pt-PT').includes(query) ||
+        utente.phone.includes(digits)
+      );
+    })
+    .map((utente) => ({
+      cardId: utente.card_id,
+      name: utente.name,
+      phone: utente.phone,
+      mobilityNeeds: JSON.parse(utente.mobility_profile),
+      mobilityProfile: mobilityProfileLabel(JSON.parse(utente.mobility_profile))
+    }));
+  return res.json({ utentes });
+});
 
 app.post('/pedidos', (req, res) => {
   const parsed = pedidoSchema.safeParse(req.body);
@@ -534,6 +578,120 @@ app.post('/test/clock', (req, res) => {
   if (Number.isNaN(date.getTime())) return res.status(400).json({ error: 'Relógio inválido.' });
   clockOverride = date.toISOString();
   return res.json({ now: clockOverride });
+});
+
+const telefoneSchema = z.object({
+  cardId: z.string().min(1),
+  destinationId: z.string().min(1),
+  consultationAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
+  optionId: z.string().min(1),
+  publicSupportRequest: z.boolean().optional()
+});
+
+app.post('/pedidos/telefonicos', (req, res) => {
+  const parsed = telefoneSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Dados do pedido telefónico inválidos.',
+      details: parsed.error.issues.map((issue) => issue.message)
+    });
+  }
+
+  const input = parsed.data;
+  const utente = db
+    .prepare('SELECT * FROM utentes WHERE card_id = ?')
+    .get(input.cardId);
+  if (!utente) return res.status(404).json({ error: 'Utente não encontrado.' });
+
+  const destination = DESTINATIONS.find((item) => item.id === input.destinationId);
+  if (!destination) {
+    return res.status(400).json({ error: 'A unidade de saúde selecionada não está no catálogo.' });
+  }
+
+  const consultationAt = normalizeDateTime(input.consultationAt);
+  const advance = validateAdvance(consultationAt, nowIso());
+  if (!advance.valid) return res.status(422).json({ error: advance.message });
+
+  const needs = JSON.parse(utente.mobility_profile);
+  const option = getCompatibleOptions(needs).find((item) => item.id === input.optionId);
+  if (!option) return res.status(400).json({ error: 'Opção de transporte não compatível.' });
+
+  const publicSupport = shouldFlagPublicSupport(
+    destination.id,
+    destination.name,
+    input.publicSupportRequest
+  );
+  const validationLabel = publicSupport ? PUBLIC_SUPPORT_LABEL : 'Registo telefónico';
+  const createdAt = nowIso();
+  const count = db.prepare('SELECT COUNT(*) AS total FROM trip_requests').get().total;
+  const requestId = `PED-${104 + count}`;
+  const outboundId = `VG-${201 + count * 2}`;
+  const returnId = `VG-${202 + count * 2}`;
+  const pickup = new Date(consultationAt);
+  pickup.setUTCMinutes(pickup.getUTCMinutes() - 45);
+  const pickupAt = pickup.toISOString().slice(0, 16);
+  const dataHora = `${input.consultationAt.slice(8, 10)}/${input.consultationAt.slice(5, 7)}/${input.consultationAt.slice(0, 4)} às ${input.consultationAt.slice(11, 16)}`;
+  const meetingPoint = `Entrada principal de ${destination.name}`;
+  const smsMessage = `MobiCare: pedido confirmado para ${dataHora} em ${destination.name}. ${meetingPoint}. Recolha às ${pickupAt.slice(11, 16)}.`;
+
+  db.exec('BEGIN');
+  try {
+    db.prepare(
+      `INSERT INTO trip_requests (
+        request_id, submission_id, user_id, requester_type, destination_id,
+        destination, consultation_at, mobility_profile, status, created_at,
+        series_id, custom_destination, validation_label, public_support_flag, planned_end
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      requestId,
+      randomUUID(),
+      utente.card_id,
+      'tecnico-ipss',
+      destination.id,
+      destination.name,
+      consultationAt,
+      utente.mobility_profile,
+      CONFIRMED_STATUS,
+      createdAt,
+      null,
+      0,
+      validationLabel,
+      publicSupport ? 1 : 0,
+      consultaFimPrevisto(consultationAt)
+    );
+
+    const insertTrip = db.prepare(
+      `INSERT INTO trips (
+        trip_id, request_id, direction, transport_option_id, status, pickup_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    insertTrip.run(outboundId, requestId, 'OUTBOUND', option.id, 'AGENDADA', pickupAt, createdAt);
+    insertTrip.run(returnId, requestId, 'RETURN', option.id, 'ESTAFETA_FLEXIVEL', null, createdAt);
+
+    const insertNotification = db.prepare(
+      'INSERT INTO notifications (request_id, recipient, message, created_at) VALUES (?, ?, ?, ?)'
+    );
+    insertNotification.run(
+      requestId,
+      'coordenacao@acompanhar.pt',
+      `Pedido telefónico ${requestId} registado para ${utente.name} (${utente.card_id}) com ${option.label}.`,
+      createdAt
+    );
+    insertNotification.run(
+      requestId,
+      `${utente.phone}@sms`,
+      smsMessage,
+      createdAt
+    );
+    enviarSms(requestId, utente.phone, smsMessage, createdAt);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+
+  const created = db.prepare('SELECT * FROM trip_requests WHERE request_id = ?').get(requestId);
+  return res.status(201).json(buildSeriesResponse(created));
 });
 
 app.use('/pedidos', (_req, res) => res.status(404).json({ error: 'Pedido não encontrado.' }));
