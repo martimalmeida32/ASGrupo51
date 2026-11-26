@@ -145,7 +145,7 @@ A aplicação do utente e a consola do técnico da IPSS comunicam com os serviç
 
 *Figura 3: Fronteira da API REST e isolamento entre canais de consumo, lógica do domínio e sistemas externos.*
 
-A API verifica o token de sessão (JWT) para identificar o utilizador e aplica o controlo de acesso por função (RBAC) para determinar as operações que este pode executar. Por exemplo, o registo de um pedido telefónico em nome de um utente requer o perfil de técnico. Os dados recebidos são validados com Zod antes de serem encaminhados para o módulo responsável. No registo de um pedido, esta validação verifica a presença e o formato dos campos obrigatórios. Cabe depois ao módulo de pedidos aplicar regras de negócio como a antecedência mínima de 24 horas.
+A arquitetura prevê a utilização de tokens JWT para autenticação dos utilizadores e controlo de acesso por função (RBAC). Estes mecanismos serão integrados em incrementos posteriores. No primeiro incremento, os dados recebidos pela API são validados através de Zod antes de serem encaminhados para os módulos responsáveis pela aplicação das regras de negócio.
 
 ### 3.1 API de serviços
 

@@ -14,7 +14,8 @@
 * **Tag da Iteração 1:** `entrega-iter1`
 * **Tag da Iteração 2:** `entrega-iter2`
 * **Tag da Iteração 3:** `entrega-iter3`
-* **Tag da Iteração 4:** `v0.1`
+* **Tag da Iteração 4:** `entrega-iter4`
+* **Versão do primeiro incremento:** `v0.1`
 
 ## MobiCare
 
@@ -49,6 +50,13 @@ O primeiro incremento abrange os oito slices do primeiro épico.
 - Agente de IA: OpenCode — Build, modelo Big Pickle.
 
 ## Execução da aplicação
+
+Requisitos de execução:
+
+- Node.js 24.
+- npm.
+- Google Chrome para os testes Playwright.
+- OpenSpec CLI 2.0.0 para validação das especificações.
 
 Instalar as dependências:
 
