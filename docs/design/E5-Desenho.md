@@ -161,6 +161,7 @@ A Tabela 3 apresenta o contrato proposto da API REST para os slices do primeiro 
 | Utentes | `GET /utentes` | Permite ao técnico pesquisar um utente por número de cartão ou telefone. |
 | Utentes | `POST /utentes` | Regista um novo utente e devolve o respetivo identificador e a referência do cartão MobiCare. |
 | Pedidos | `POST /pedidos/telefonicos` | Valida o pedido introduzido pelo técnico, incluindo uma eventual justificação de exceção. Após a confirmação, prepara a notificação por SMS. |
+| Pedidos | `GET /pedidos/{id}` | Consultar os dados, o estado e o perfil de mobilidade de um pedido registado. |
 
 ### 3.2 Mapeamento dos slices para a API e os módulos
 
