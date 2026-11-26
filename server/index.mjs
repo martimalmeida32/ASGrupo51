@@ -9,6 +9,8 @@ import {
   addDaysToDateTime,
   CUSTOM_DESTINATION_ID,
   CUSTOM_DESTINATION_LABEL,
+  CONFIRMED_STATUS,
+  CONFIRMED_STATUS_LABEL,
   DESTINATIONS,
   INITIAL_STATUS,
   INITIAL_STATUS_LABEL,
@@ -57,6 +59,16 @@ db.exec(`
     message TEXT NOT NULL,
     created_at TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS trips (
+    trip_id TEXT PRIMARY KEY,
+    request_id TEXT NOT NULL REFERENCES trip_requests(request_id),
+    direction TEXT NOT NULL,
+    transport_option_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    pickup_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE (request_id, direction)
+  );
 `);
 
 const columns = db.prepare('PRAGMA table_info(trip_requests)').all().map((column) => column.name);
@@ -92,6 +104,28 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function statusLabel(status) {
+  if (status === INITIAL_STATUS) return INITIAL_STATUS_LABEL;
+  if (status === CONFIRMED_STATUS) return CONFIRMED_STATUS_LABEL;
+  return status;
+}
+
+function buildTrips(requestId) {
+  return db
+    .prepare(
+      'SELECT trip_id, direction, transport_option_id, status, pickup_at, created_at FROM trips WHERE request_id = ? ORDER BY trip_id'
+    )
+    .all(requestId)
+    .map((trip) => ({
+      tripId: trip.trip_id,
+      direction: trip.direction,
+      transportOptionId: trip.transport_option_id,
+      status: trip.status,
+      pickupAt: trip.pickup_at,
+      createdAt: trip.created_at
+    }));
+}
+
 function rowToPedido(row) {
   const needs = JSON.parse(row.mobility_profile);
   const notification = db
@@ -99,10 +133,11 @@ function rowToPedido(row) {
       'SELECT recipient, message, created_at FROM notifications WHERE request_id = ? ORDER BY notification_id LIMIT 1'
     )
     .get(row.request_id);
+  const trips = buildTrips(row.request_id);
 
   return {
     requestId: row.request_id,
-    status: row.status === INITIAL_STATUS ? INITIAL_STATUS_LABEL : row.status,
+    status: statusLabel(row.status),
     mobilityProfile: mobilityProfileLabel(needs),
     destination: row.destination,
     consultationAt: row.consultation_at,
@@ -118,7 +153,14 @@ function rowToPedido(row) {
           sentAt: notification.created_at
         }
       : null,
-    options: getCompatibleOptions(needs)
+    options: getCompatibleOptions(needs),
+    selection: trips[0]
+      ? {
+          optionId: trips[0].transportOptionId,
+          confirmedAt: trips[0].createdAt
+        }
+      : null,
+    trips
   };
 }
 
@@ -241,6 +283,74 @@ app.post('/pedidos', (req, res) => {
 
   const firstRow = db.prepare('SELECT * FROM trip_requests WHERE request_id = ?').get(requestIds[0]);
   return res.status(201).json(buildSeriesResponse(firstRow));
+});
+
+app.post('/pedidos/:id/selecao', (req, res) => {
+  const parsed = z.object({ optionId: z.string().min(1) }).safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({
+      error: 'Seleção de transporte inválida.',
+      details: parsed.error.issues.map((issue) => issue.message)
+    });
+  }
+
+  const row = db.prepare('SELECT * FROM trip_requests WHERE request_id = ?').get(req.params.id);
+  if (!row) return res.status(404).json({ error: 'Pedido não encontrado.' });
+
+  const pedido = rowToPedido(row);
+  const option = pedido.options.find((item) => item.id === parsed.data.optionId);
+  if (!option) return res.status(400).json({ error: 'Opção de transporte não compatível.' });
+
+  const existingTrips = buildTrips(row.request_id);
+  if (existingTrips.length > 0) {
+    return res.status(200).json(buildSeriesResponse(row));
+  }
+
+  const createdAt = nowIso();
+  const count = db.prepare('SELECT COUNT(*) AS total FROM trips').get().total;
+  const pickup = new Date(normalizeDateTime(row.consultation_at));
+  pickup.setUTCMinutes(pickup.getUTCMinutes() - 45);
+  const pickupAt = pickup.toISOString().slice(0, 16);
+  const outboundId = `VG-${201 + count}`;
+  const returnId = `VG-${202 + count}`;
+
+  db.exec('BEGIN');
+  try {
+    db.prepare('UPDATE trip_requests SET status = ? WHERE request_id = ?').run(
+      CONFIRMED_STATUS,
+      row.request_id
+    );
+    const insertTrip = db.prepare(
+      `INSERT INTO trips (
+        trip_id, request_id, direction, transport_option_id, status, pickup_at, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)`
+    );
+    insertTrip.run(outboundId, row.request_id, 'OUTBOUND', option.id, 'AGENDADA', pickupAt, createdAt);
+    insertTrip.run(returnId, row.request_id, 'RETURN', option.id, 'ESTAFETA_FLEXIVEL', null, createdAt);
+
+    const insertNotification = db.prepare(
+      'INSERT INTO notifications (request_id, recipient, message, created_at) VALUES (?, ?, ?, ?)'
+    );
+    insertNotification.run(
+      row.request_id,
+      'voluntario@acompanhar.pt',
+      `Viagem ${outboundId} atribuída a ${option.label} para ${row.destination}.`,
+      createdAt
+    );
+    insertNotification.run(
+      row.request_id,
+      'coordenacao@acompanhar.pt',
+      `Pedido ${row.request_id} confirmado com ${option.label}; viagens ${outboundId} e ${returnId} criadas.`,
+      createdAt
+    );
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
+  }
+
+  const updated = db.prepare('SELECT * FROM trip_requests WHERE request_id = ?').get(row.request_id);
+  return res.status(201).json(buildSeriesResponse(updated));
 });
 
 app.get('/pedidos/:id/opcoes', (req, res) => {

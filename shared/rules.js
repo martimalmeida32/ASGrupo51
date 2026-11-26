@@ -22,6 +22,9 @@ export const CUSTOM_DESTINATION_LABEL = 'Destino não listado - validação pré
 
 export const INITIAL_STATUS = 'A_ESCOLHER_O_MEIO';
 export const INITIAL_STATUS_LABEL = 'A escolher o meio';
+export const CONFIRMED_STATUS = 'CONFIRMADO';
+export const CONFIRMED_STATUS_LABEL = 'Confirmado';
+export const TRANSPORT_CASCADE = ['voluntario', 'viatura-adaptada', 'operador-profissional'];
 export const ADVANCE_LIMIT_MS = 24 * 60 * 60 * 1000;
 export const IPSS_SUPPORT_PHONE = '+351 234 000 000';
 export const PUBLIC_SUPPORT_LABEL = 'Isenção de taxas moderadoras por insuficiência económica';
@@ -77,30 +80,30 @@ export function mobilityProfileLabel(needIds) {
 
 export function getCompatibleOptions(needIds) {
   const needs = new Set(needIds);
-  const professional = {
-    id: 'operador-profissional',
-    label: 'Operador Profissional',
-    cost: 'A confirmar',
-    recommended: false
-  };
-
-  if (needs.has('maca') || needs.has('cuidados')) {
-    return [professional];
-  }
-
-  return [
-    {
+  const options = {
+    'operador-profissional': {
+      id: 'operador-profissional',
+      label: 'Operador Profissional',
+      cost: 'A confirmar',
+      recommended: false
+    },
+    voluntario: {
       id: 'voluntario',
-      label: 'Voluntário',
+      label: 'Voluntário Carlos Mendes',
       cost: '0,00 €',
       recommended: true
     },
-    {
+    'viatura-adaptada': {
       id: 'viatura-adaptada',
       label: 'Viatura Adaptada de Parceiro',
       cost: 'A confirmar',
       recommended: false
-    },
-    professional
-  ];
+    }
+  };
+
+  const allowed = needs.has('maca') || needs.has('cuidados')
+    ? ['operador-profissional']
+    : TRANSPORT_CASCADE;
+
+  return allowed.map((id) => options[id]);
 }

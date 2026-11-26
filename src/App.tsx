@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
-import { criarPedido, obterOpcoes } from './api';
+import { criarPedido, obterOpcoes, selecionarTransporte } from './api';
 import { enqueuePedido, listarPedidosPendentes, removerPedidoPendente } from './offline';
 import type { PedidoPendente } from './offline';
 import type { CreatePedidoInput, PedidoResponse, RequesterType } from './types';
@@ -33,6 +33,9 @@ export default function App() {
   const [online, setOnline] = useState(() => navigator.onLine);
   const [pending, setPending] = useState<PedidoPendente[]>([]);
   const [syncMessage, setSyncMessage] = useState('');
+  const [selectedOptionId, setSelectedOptionId] = useState('');
+  const [selectionError, setSelectionError] = useState('');
+  const [selectionLoading, setSelectionLoading] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PedidoResponse | null>(null);
@@ -92,6 +95,8 @@ export default function App() {
         const created = await criarPedido(item.input);
         const options = await obterOpcoes(created.requestId);
         setResult({ ...created, options });
+        setSelectedOptionId('');
+        setSelectionError('');
         await removerPedidoPendente(item.id);
       }
       setPending(await listarPedidosPendentes());
@@ -138,6 +143,9 @@ export default function App() {
       setError('Indique pelo menos uma necessidade de mobilidade.');
       return;
     }
+
+    setSelectedOptionId('');
+    setSelectionError('');
 
     const input: CreatePedidoInput = {
       submissionId: submissionId.current,
@@ -186,6 +194,27 @@ export default function App() {
       setError(cause instanceof Error ? cause.message : 'Não foi possível registar o pedido.');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleConfirmSelection() {
+    if (!result || !selectedOptionId) {
+      setSelectionError('Selecione uma opção de transporte.');
+      return;
+    }
+
+    setSelectionError('');
+    setSelectionLoading(true);
+    try {
+      const updated = await selecionarTransporte(result.requestId, selectedOptionId);
+      setResult({
+        ...updated,
+        options: updated.options.length > 0 ? updated.options : result.options
+      });
+    } catch (cause) {
+      setSelectionError(cause instanceof Error ? cause.message : 'Não foi possível confirmar a marcação.');
+    } finally {
+      setSelectionLoading(false);
     }
   }
 
@@ -420,12 +449,57 @@ export default function App() {
           <ol className="options-list" data-testid="transport-options">
             {result.options.map((option) => (
               <li key={option.id} data-testid="transport-option">
+                <input
+                  type="radio"
+                  name="transport-option"
+                  value={option.id}
+                  checked={selectedOptionId === option.id}
+                  onChange={() => setSelectedOptionId(option.id)}
+                  aria-label={`Selecionar ${option.label}`}
+                  data-testid={`select-transport-${option.id}`}
+                />
                 <strong>{option.label}</strong>
                 {option.recommended ? <span className="badge">Recomendado</span> : null}
                 <span className="cost">Custo para o utente: {option.cost}</span>
               </li>
             ))}
           </ol>
+          {result.status === 'A escolher o meio' ? (
+            <div className="selection">
+              {selectionError ? (
+                <p role="alert" className="error" data-testid="selection-error">
+                  {selectionError}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                className="primary"
+                disabled={selectionLoading || !selectedOptionId}
+                onClick={handleConfirmSelection}
+                data-testid="confirm-selection"
+              >
+                {selectionLoading ? 'A confirmar…' : 'Confirmar marcação'}
+              </button>
+            </div>
+          ) : null}
+          {result.trips.length > 0 ? (
+            <section className="trips">
+              <h3>Viagens criadas</h3>
+              <ul className="options-list" data-testid="trips">
+                {result.trips.map((trip) => (
+                  <li
+                    key={trip.tripId}
+                    data-testid={`trip-${trip.direction.toLowerCase()}`}
+                  >
+                    <strong>#{trip.tripId}</strong>
+                    <span>{trip.direction === 'OUTBOUND' ? 'Ida' : 'Regresso'}</span>
+                    <span>{trip.status}</span>
+                    {trip.pickupAt ? <span>Recolha: {formatDateTime(trip.pickupAt)}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </section>
       ) : null}
     </main>

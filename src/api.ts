@@ -22,3 +22,15 @@ export async function obterOpcoes(requestId: string): Promise<TransportOption[]>
   const payload = (await readJson(response)) as { options: TransportOption[] };
   return payload.options;
 }
+
+export async function selecionarTransporte(
+  requestId: string,
+  optionId: string
+): Promise<PedidoResponse> {
+  const response = await fetch(`/pedidos/${encodeURIComponent(requestId)}/selecao`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ optionId })
+  });
+  return (await readJson(response)) as PedidoResponse;
+}

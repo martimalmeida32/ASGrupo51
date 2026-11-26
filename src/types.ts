@@ -19,6 +19,20 @@ export interface TransportOption {
   recommended: boolean;
 }
 
+export interface SelectionInfo {
+  optionId: string;
+  confirmedAt: string;
+}
+
+export interface TripInfo {
+  tripId: string;
+  direction: 'OUTBOUND' | 'RETURN';
+  transportOptionId: string;
+  status: string;
+  pickupAt: string | null;
+  createdAt: string;
+}
+
 export interface NotificationInfo {
   recipient: string;
   message: string;
@@ -38,5 +52,7 @@ export interface PedidoResponse {
   publicSupportMessage: string | null;
   notification: NotificationInfo | null;
   options: TransportOption[];
+  selection: SelectionInfo | null;
+  trips: TripInfo[];
   requests?: PedidoResponse[];
 }
