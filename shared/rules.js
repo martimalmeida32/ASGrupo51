@@ -31,6 +31,11 @@ export const RETURN_TRIGGER_MS = 25 * 60 * 1000;
 export const IPSS_SUPPORT_PHONE = '+351 234 000 000';
 export const PUBLIC_SUPPORT_LABEL = 'Isenção de taxas moderadoras por insuficiência económica';
 export const PUBLIC_SUPPORT_MESSAGE = 'Encaminhamento prioritário para TNUD / Táxi Saúde Municipal';
+export const ADVANCE_VIOLATION_ALERT = 'Violação de antecedência mínima de 24 horas';
+export const ACUTE_MEDICAL_SYMPTOMS_ID = 'urgencia-medica-aguda';
+export const ACUTE_MEDICAL_SYMPTOMS_LABEL = 'Sintomas de urgência médica aguda';
+export const EMERGENCY_112_MESSAGE =
+  'Ligar de imediato para o 112 — caso clínico não elegível para transporte MobiCare';
 
 export function normalizeDateTime(value) {
   if (typeof value !== 'string') return '';

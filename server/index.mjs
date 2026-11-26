@@ -13,6 +13,7 @@ import {
   CONFIRMED_STATUS,
   CONFIRMED_STATUS_LABEL,
   DESTINATIONS,
+  EMERGENCY_112_MESSAGE,
   INITIAL_STATUS,
   INITIAL_STATUS_LABEL,
   MOBILITY_NEED_IDS,
@@ -88,6 +89,8 @@ db.exec(`
   );
   INSERT OR IGNORE INTO utentes (card_id, name, phone, mobility_profile)
     VALUES ('MC-0205', 'Maria Ferreira', '912345678', '["acompanhante"]');
+  INSERT OR IGNORE INTO utentes (card_id, name, phone, mobility_profile)
+    VALUES ('MC-0087', 'Utente Registado', '913000087', '["bengala"]');
   CREATE TABLE IF NOT EXISTS audit_log (
     audit_id INTEGER PRIMARY KEY AUTOINCREMENT,
     request_id TEXT REFERENCES trip_requests(request_id),
@@ -652,6 +655,7 @@ const telefoneSchema = z.object({
   consultationAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
   optionId: z.string().min(1),
   publicSupportRequest: z.boolean().optional(),
+  acuteMedicalEmergency: z.boolean().optional(),
   urgencyException: z
     .object({
       authorized: z.literal(true),
@@ -671,6 +675,10 @@ app.post('/pedidos/telefonicos', (req, res) => {
   }
 
   const input = parsed.data;
+  if (input.acuteMedicalEmergency === true) {
+    return res.status(422).json({ error: EMERGENCY_112_MESSAGE, emergency: true });
+  }
+
   const utente = db
     .prepare('SELECT * FROM utentes WHERE card_id = ?')
     .get(input.cardId);

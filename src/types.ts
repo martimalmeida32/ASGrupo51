@@ -51,6 +51,7 @@ export interface CreateTelephonePedidoInput {
   consultationAt: string;
   optionId: string;
   publicSupportRequest?: boolean;
+  acuteMedicalEmergency?: boolean;
   urgencyException?: UrgencyExceptionInput;
 }
 

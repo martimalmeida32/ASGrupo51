@@ -2,7 +2,10 @@ import { useState } from 'react';
 import type { FormEvent } from 'react';
 import { inscreverUtente, pesquisarUtentes, registrarPedidoTelefonico } from './api';
 import {
+  ACUTE_MEDICAL_SYMPTOMS_LABEL,
+  ADVANCE_VIOLATION_ALERT,
   DESTINATIONS,
+  EMERGENCY_112_MESSAGE,
   getCompatibleOptions,
   MOBILITY_NEEDS,
   PUBLIC_SUPPORT_LABEL,
@@ -26,6 +29,8 @@ export default function TechnicianConsole() {
   const [consultationAt, setConsultationAt] = useState('');
   const [optionId, setOptionId] = useState('');
   const [publicSupportRequest, setPublicSupportRequest] = useState(false);
+  const [acuteMedicalEmergency, setAcuteMedicalEmergency] = useState(false);
+  const [emergency112, setEmergency112] = useState(false);
   const [showInscricao, setShowInscricao] = useState(false);
   const [newName, setNewName] = useState('');
   const [newPhone, setNewPhone] = useState('');
@@ -69,6 +74,15 @@ export default function TechnicianConsole() {
     setNewNeeds((current) =>
       current.includes(id) ? current.filter((need) => need !== id) : [...current, id]
     );
+  }
+
+  function handleAcuteMedicalSymptoms(checked: boolean) {
+    setAcuteMedicalEmergency(checked);
+    if (checked) {
+      setEmergency112(true);
+      setError('');
+      setResult(null);
+    }
   }
 
   async function handleInscricao(event: FormEvent<HTMLFormElement>) {
@@ -125,6 +139,7 @@ export default function TechnicianConsole() {
         consultationAt,
         optionId,
         publicSupportRequest,
+        acuteMedicalEmergency,
         urgencyException: urgencyException
           ? {
               authorized: true,
@@ -135,13 +150,56 @@ export default function TechnicianConsole() {
       });
       setResult(created);
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Não foi possível registar o pedido.');
+      const message = cause instanceof Error ? cause.message : 'Não foi possível registar o pedido.';
+      if (message.includes('Antecedência mínima')) {
+        setError(ADVANCE_VIOLATION_ALERT);
+      } else if (message.includes('112')) {
+        setAcuteMedicalEmergency(true);
+        setEmergency112(true);
+      } else {
+        setError(message);
+      }
     } finally {
       setLoading(false);
     }
   }
 
   const options = utente ? getCompatibleOptions(utente.mobilityNeeds) : [];
+
+  if (emergency112) {
+    return (
+      <section
+        className="emergency-overlay"
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="emergencia-112-title"
+        aria-describedby="emergencia-112-message"
+        data-testid="emergencia-112"
+      >
+        <div className="emergency-panel">
+          <h1 id="emergencia-112-title">Emergência médica — atendimento interrompido</h1>
+          <p className="emergency-message" id="emergencia-112-message" data-testid="emergencia-112-message">
+            {EMERGENCY_112_MESSAGE}
+          </p>
+          <p>Não foi criado nenhum pedido MobiCare.</p>
+          <a href="tel:112" className="emergency-call" data-testid="emergencia-112-call">
+            Ligar para 112
+          </a>
+          <button
+            type="button"
+            className="option"
+            onClick={() => {
+              setEmergency112(false);
+              setAcuteMedicalEmergency(false);
+            }}
+            data-testid="emergencia-112-close"
+          >
+            Voltar ao atendimento telefónico
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   return (
     <>
@@ -291,6 +349,19 @@ export default function TechnicianConsole() {
             </fieldset>
 
             <fieldset>
+              <legend>Triagem de sintomas (BR-12)</legend>
+              <label className="choice">
+                <input
+                  type="checkbox"
+                  checked={acuteMedicalEmergency}
+                  onChange={(event) => handleAcuteMedicalSymptoms(event.target.checked)}
+                  data-testid="telefone-sintomas-urgencia"
+                />
+                {ACUTE_MEDICAL_SYMPTOMS_LABEL}
+              </label>
+            </fieldset>
+
+            <fieldset>
               <legend>Exceção à antecedência mínima (BR-01)</legend>
               <label className="choice">
                 <input
@@ -345,6 +416,16 @@ export default function TechnicianConsole() {
               <p role="alert" className="error" data-testid="telefone-error">
                 {error}
               </p>
+            ) : null}
+            {error === ADVANCE_VIOLATION_ALERT ? (
+              <>
+                <p role="alert" className="error" data-testid="telefone-bloqueio-antecedencia">
+                  {ADVANCE_VIOLATION_ALERT}
+                </p>
+                <p data-testid="telefone-bloqueio-antecedencia-acao">
+                  Ajuste a data ou declare uma exceção autorizada.
+                </p>
+              </>
             ) : null}
 
             <button type="submit" className="primary" disabled={loading} data-testid="telefone-confirm">
