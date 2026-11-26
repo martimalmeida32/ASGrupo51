@@ -13,9 +13,12 @@ import {
   INITIAL_STATUS,
   INITIAL_STATUS_LABEL,
   MOBILITY_NEED_IDS,
+  PUBLIC_SUPPORT_LABEL,
+  PUBLIC_SUPPORT_MESSAGE,
   getCompatibleOptions,
   mobilityProfileLabel,
   normalizeDateTime,
+  shouldFlagPublicSupport,
   validateAdvance
 } from '../shared/rules.js';
 
@@ -44,7 +47,8 @@ db.exec(`
     created_at TEXT NOT NULL,
     series_id TEXT,
     custom_destination INTEGER NOT NULL DEFAULT 0,
-    validation_label TEXT
+    validation_label TEXT,
+    public_support_flag INTEGER NOT NULL DEFAULT 0
   );
   CREATE TABLE IF NOT EXISTS notifications (
     notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,6 +67,9 @@ if (!columns.includes('custom_destination')) {
 if (!columns.includes('validation_label')) {
   db.exec('ALTER TABLE trip_requests ADD COLUMN validation_label TEXT');
 }
+if (!columns.includes('public_support_flag')) {
+  db.exec('ALTER TABLE trip_requests ADD COLUMN public_support_flag INTEGER NOT NULL DEFAULT 0');
+}
 
 const pedidoSchema = z.object({
   submissionId: z.string().min(1).optional(),
@@ -72,7 +79,8 @@ const pedidoSchema = z.object({
   consultationAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
   mobilityNeeds: z.array(z.enum(MOBILITY_NEED_IDS)).min(1),
   recorrenciaSemanal: z.boolean().optional(),
-  customDestination: z.string().min(1).optional()
+  customDestination: z.string().min(1).optional(),
+  publicSupportRequest: z.boolean().optional()
 });
 
 function nowIso() {
@@ -101,6 +109,8 @@ function rowToPedido(row) {
     seriesId: row.series_id ?? `SER-${row.request_id}`,
     customDestination: Boolean(row.custom_destination),
     validationLabel: row.validation_label ?? null,
+    publicSupportEligible: Boolean(row.public_support_flag),
+    publicSupportMessage: row.public_support_flag ? PUBLIC_SUPPORT_MESSAGE : null,
     notification: notification
       ? {
           recipient: notification.recipient,
@@ -177,7 +187,17 @@ app.post('/pedidos', (req, res) => {
   const requestIds = dates.map((_, index) => `PED-${104 + count + index}`);
   const submissionId = input.submissionId ?? randomUUID();
   const seriesId = recurrence ? `SER-${randomUUID().slice(0, 8)}` : null;
-  const validationLabel = isCustom ? CUSTOM_DESTINATION_LABEL : null;
+  const publicSupport = shouldFlagPublicSupport(
+    destination.id,
+    destination.name,
+    input.publicSupportRequest
+  );
+  const validationLabel = [
+    isCustom ? CUSTOM_DESTINATION_LABEL : null,
+    publicSupport ? PUBLIC_SUPPORT_LABEL : null
+  ]
+    .filter(Boolean)
+    .join(' · ') || null;
   const needs = [...new Set(input.mobilityNeeds)];
   const recipient = 'coordenacao@acompanhar.pt';
 
@@ -191,8 +211,8 @@ app.post('/pedidos', (req, res) => {
         `INSERT INTO trip_requests (
           request_id, submission_id, user_id, requester_type, destination_id,
           destination, consultation_at, mobility_profile, status, created_at,
-          series_id, custom_destination, validation_label
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+          series_id, custom_destination, validation_label, public_support_flag
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       ).run(
         requestId,
         submissionForRow,
@@ -206,7 +226,8 @@ app.post('/pedidos', (req, res) => {
         createdAt,
         seriesId,
         isCustom ? 1 : 0,
-        validationLabel
+        validationLabel,
+        publicSupport ? 1 : 0
       );
       db.prepare(
         'INSERT INTO notifications (request_id, recipient, message, created_at) VALUES (?, ?, ?, ?)'

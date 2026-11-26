@@ -1,8 +1,16 @@
-import { useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { criarPedido, obterOpcoes } from './api';
-import type { PedidoResponse, RequesterType } from './types';
-import { CUSTOM_DESTINATION_ID, DESTINATIONS, MOBILITY_NEEDS } from '../shared/rules.js';
+import { enqueuePedido, listarPedidosPendentes, removerPedidoPendente } from './offline';
+import type { PedidoPendente } from './offline';
+import type { CreatePedidoInput, PedidoResponse, RequesterType } from './types';
+import {
+  CUSTOM_DESTINATION_ID,
+  DESTINATIONS,
+  IPSS_SUPPORT_PHONE,
+  MOBILITY_NEEDS,
+  PUBLIC_SUPPORT_LABEL
+} from '../shared/rules.js';
 
 function formatDateTime(iso: string) {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso)) return iso;
@@ -21,9 +29,14 @@ export default function App() {
   const [consultationAt, setConsultationAt] = useState('');
   const [mobilityNeeds, setMobilityNeeds] = useState<string[]>([]);
   const [recorrenciaSemanal, setRecorrenciaSemanal] = useState(false);
+  const [publicSupportRequest, setPublicSupportRequest] = useState(false);
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [pending, setPending] = useState<PedidoPendente[]>([]);
+  const [syncMessage, setSyncMessage] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PedidoResponse | null>(null);
+  const syncing = useRef(false);
 
   const filteredDestinations = DESTINATIONS.filter((destination) =>
     destination.name.toLocaleLowerCase('pt-PT').includes(search.toLocaleLowerCase('pt-PT'))
@@ -55,6 +68,60 @@ export default function App() {
     );
   }
 
+  const refreshPending = useCallback(async () => {
+    try {
+      setPending(await listarPedidosPendentes());
+    } catch {
+      setPending([]);
+    }
+  }, []);
+
+  const syncPendingRequests = useCallback(async () => {
+    if (syncing.current || !navigator.onLine) return;
+    syncing.current = true;
+
+    try {
+      const items = await listarPedidosPendentes();
+      if (items.length === 0) {
+        setPending([]);
+        return;
+      }
+
+      setSyncMessage('A sincronizar pedidos guardados…');
+      for (const item of items) {
+        const created = await criarPedido(item.input);
+        const options = await obterOpcoes(created.requestId);
+        setResult({ ...created, options });
+        await removerPedidoPendente(item.id);
+      }
+      setPending(await listarPedidosPendentes());
+      setSyncMessage('Pedidos sincronizados com sucesso.');
+    } catch {
+      setSyncMessage('Não foi possível sincronizar. O pedido permanece guardado no dispositivo.');
+      await refreshPending();
+    } finally {
+      syncing.current = false;
+    }
+  }, [refreshPending]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setOnline(true);
+      void syncPendingRequests();
+    };
+    const handleOffline = () => setOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    setOnline(navigator.onLine);
+    void refreshPending().then(syncPendingRequests);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [refreshPending, syncPendingRequests]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
@@ -72,21 +139,50 @@ export default function App() {
       return;
     }
 
+    const input: CreatePedidoInput = {
+      submissionId: submissionId.current,
+      requesterType,
+      userId,
+      destinationId,
+      consultationAt,
+      mobilityNeeds,
+      recorrenciaSemanal,
+      customDestination: customDestination ?? undefined,
+      publicSupportRequest
+    };
+
+    if (!navigator.onLine) {
+      setLoading(true);
+      try {
+        await enqueuePedido(input);
+        await refreshPending();
+        setSyncMessage('Pedido guardado no dispositivo — Pendente de sincronização.');
+      } catch {
+        setError('Não foi possível guardar o pedido no dispositivo.');
+      } finally {
+        setLoading(false);
+      }
+      return;
+    }
+
     setLoading(true);
     try {
-      const created = await criarPedido({
-        submissionId: submissionId.current,
-        requesterType,
-        userId,
-        destinationId,
-        consultationAt,
-        mobilityNeeds,
-        recorrenciaSemanal,
-        customDestination: customDestination ?? undefined
-      });
+      const created = await criarPedido(input);
       const options = await obterOpcoes(created.requestId);
       setResult({ ...created, options });
+      setSyncMessage('');
     } catch (cause) {
+      if (!navigator.onLine || cause instanceof TypeError) {
+        try {
+          await enqueuePedido(input);
+          await refreshPending();
+          setSyncMessage('Pedido guardado no dispositivo — Pendente de sincronização.');
+          return;
+        } catch {
+          setError('Não foi possível guardar o pedido no dispositivo.');
+          return;
+        }
+      }
       setError(cause instanceof Error ? cause.message : 'Não foi possível registar o pedido.');
     } finally {
       setLoading(false);
@@ -101,6 +197,32 @@ export default function App() {
           António Silva · Cartão {userId === 'MC-0142' ? '#MC-0142' : userId}
         </span>
       </header>
+
+      <p
+        className={online ? 'connection online' : 'connection offline'}
+        data-testid="connection-status"
+      >
+        {online ? 'Ligação disponível' : 'Sem ligação — pedidos guardados no dispositivo'}
+      </p>
+
+      {pending.length > 0 || syncMessage ? (
+        <section className="card" aria-live="polite" data-testid="offline-panel">
+          <h2>Pedidos guardados localmente</h2>
+          {syncMessage ? <p className="selected" data-testid="sync-message">{syncMessage}</p> : null}
+          <ul className="options-list" data-testid="pending-requests">
+            {pending.map((item) => (
+              <li
+                key={item.id}
+                data-testid="pending-request"
+                data-submission-id={item.input.submissionId}
+              >
+                <strong>{formatDateTime(item.input.consultationAt)}</strong>
+                <span>Pendente de sincronização</span>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       <h1>Pedir acompanhamento a consulta</h1>
       <p className="lead">
@@ -211,11 +333,28 @@ export default function App() {
               </label>
             ))}
           </div>
+          <label className="choice">
+            <input
+              type="checkbox"
+              checked={publicSupportRequest}
+              onChange={(event) => setPublicSupportRequest(event.target.checked)}
+              data-testid="public-support-request"
+            />
+            {PUBLIC_SUPPORT_LABEL}
+          </label>
         </fieldset>
 
         {error ? (
           <p role="alert" className="error" data-testid="validation-error">
             {error}
+          </p>
+        ) : null}
+        {error.includes('Antecedência') ? (
+          <p className="error" data-testid="ipss-contact">
+            Para casos excecionais, contacte a IPSS:{' '}
+            <a href={`tel:${IPSS_SUPPORT_PHONE.replace(/\s/g, '')}`} data-testid="ipss-phone">
+              {IPSS_SUPPORT_PHONE}
+            </a>
           </p>
         ) : null}
 
@@ -242,6 +381,16 @@ export default function App() {
             <p className="selected" data-testid="validation-label">
               {result.validationLabel}
             </p>
+          ) : null}
+          {result.publicSupportEligible ? (
+            <>
+              <p className="badge" data-testid="public-support-flag">
+                Encaminhado para triagem prévia
+              </p>
+              <p className="success" data-testid="public-support-message">
+                {result.publicSupportMessage}
+              </p>
+            </>
           ) : null}
           {result.requests && result.requests.length > 1 ? (
             <section className="series">

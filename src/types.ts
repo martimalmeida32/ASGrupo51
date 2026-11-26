@@ -9,6 +9,7 @@ export interface CreatePedidoInput {
   mobilityNeeds: string[];
   recorrenciaSemanal?: boolean;
   customDestination?: string;
+  publicSupportRequest?: boolean;
 }
 
 export interface TransportOption {
@@ -33,6 +34,8 @@ export interface PedidoResponse {
   seriesId: string;
   customDestination: boolean;
   validationLabel: string | null;
+  publicSupportEligible: boolean;
+  publicSupportMessage: string | null;
   notification: NotificationInfo | null;
   options: TransportOption[];
   requests?: PedidoResponse[];

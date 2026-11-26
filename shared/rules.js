@@ -23,6 +23,9 @@ export const CUSTOM_DESTINATION_LABEL = 'Destino não listado - validação pré
 export const INITIAL_STATUS = 'A_ESCOLHER_O_MEIO';
 export const INITIAL_STATUS_LABEL = 'A escolher o meio';
 export const ADVANCE_LIMIT_MS = 24 * 60 * 60 * 1000;
+export const IPSS_SUPPORT_PHONE = '+351 234 000 000';
+export const PUBLIC_SUPPORT_LABEL = 'Isenção de taxas moderadoras por insuficiência económica';
+export const PUBLIC_SUPPORT_MESSAGE = 'Encaminhamento prioritário para TNUD / Táxi Saúde Municipal';
 
 export function normalizeDateTime(value) {
   if (typeof value !== 'string') return '';
@@ -55,6 +58,15 @@ export function validateAdvance(consultationAt, now) {
   }
 
   return { valid: true, message: '' };
+}
+
+export function shouldFlagPublicSupport(destinationId, destinationName, requested) {
+  const eligibleIds = new Set([
+    'centro-saude-ilhavo',
+    'centro-saude-aveiro',
+    'hospital-infante-d-pedro'
+  ]);
+  return requested === true && (eligibleIds.has(destinationId) || /aveiro/i.test(destinationName ?? ''));
 }
 
 export function mobilityProfileLabel(needIds) {
