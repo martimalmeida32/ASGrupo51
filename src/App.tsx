@@ -18,6 +18,11 @@ function formatDateTime(iso: string) {
   return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)} às ${iso.slice(11, 16)}`;
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  readonly userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+  prompt(): Promise<void>;
+}
+
 export default function App() {
   const submissionId = useRef(
     globalThis.crypto?.randomUUID?.() ?? `sub-${Date.now()}`
@@ -41,6 +46,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PedidoResponse | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const syncing = useRef(false);
 
   const filteredDestinations = DESTINATIONS.filter((destination) =>
@@ -128,6 +134,29 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [refreshPending, syncPendingRequests]);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPrompt(event as BeforeInstallPromptEvent);
+    };
+    const handleAppInstalled = () => setInstallPrompt(null);
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  async function handleInstall() {
+    if (!installPrompt) return;
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -254,6 +283,17 @@ export default function App() {
       >
         {online ? 'Ligação disponível' : 'Sem ligação — pedidos guardados no dispositivo'}
       </p>
+
+      {installPrompt ? (
+        <button
+          type="button"
+          className="install-button"
+          onClick={handleInstall}
+          data-testid="install-button"
+        >
+          Instalar aplicação
+        </button>
+      ) : null}
 
       {pending.length > 0 || syncMessage ? (
         <section className="card" aria-live="polite" data-testid="offline-panel">

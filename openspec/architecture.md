@@ -109,8 +109,9 @@ estão previstos para incrementos posteriores.
 | UC-06-S2 | Inscrição e exceções autorizadas |
 | UC-06-S3 | Bloqueios e triagem de urgência |
 
-O incremento foi validado através de 12 testes automatizados
-com Playwright.
+O incremento foi validado através de 17 testes automatizados
+com Playwright, incluindo cinco testes de instalação,
+funcionamento offline e sincronização da PWA.
 
 ## 10. Decisões arquiteturais e referências
 

@@ -101,10 +101,12 @@ openspec list --specs
 ### Resultados da Iteração 4
 
 - 8 slices implementados e arquivados.
-- 12 testes automáticos aprovados.
-- 10 requisitos consolidados em 4 especificações.
-- Validação estrita do OpenSpec: 5 aprovados, 0 erros.
+- 1 change complementar de suporte PWA implementada e arquivada.
+- 17 testes automáticos aprovados.
+- 13 requisitos consolidados em 5 especificações.
+- Validação estrita do OpenSpec: 6 aprovados, 0 erros.
 - Compilação concluída sem erros.
+- Instalação manual da PWA validada.
 
 ## Documentação
 
@@ -113,6 +115,7 @@ openspec list --specs
 - [Especificações consolidadas](openspec/specs/)
 - [Changes arquivadas](openspec/changes/archive/)
 - [Configuração OpenSpec](openspec/config.yaml)
+- [Arquitetura global do MobiCare](openspec/architecture.md)
 
 ## Demonstração do primeiro incremento — Iteração 4
 
@@ -129,3 +132,6 @@ A aplicação MobiCare foi validada através de testes manuais e de 12 testes au
 
 ### 4. Confirmação do pedido telefónico e SMS simulado
 ![Confirmação por SMS](assets/Evidencias-Iter4/04-confirmacao-telefonica-sms.png)
+
+### 5. Aplicação MobiCare instalada como PWA
+![PWA instalada](assets/Evidencias-Iter4/05-pwa-instalada.png)
