@@ -2,7 +2,12 @@ import { useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { criarPedido, obterOpcoes } from './api';
 import type { PedidoResponse, RequesterType } from './types';
-import { DESTINATIONS, MOBILITY_NEEDS } from '../shared/rules.js';
+import { CUSTOM_DESTINATION_ID, DESTINATIONS, MOBILITY_NEEDS } from '../shared/rules.js';
+
+function formatDateTime(iso: string) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(iso)) return iso;
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)} às ${iso.slice(11, 16)}`;
+}
 
 export default function App() {
   const submissionId = useRef(
@@ -12,8 +17,10 @@ export default function App() {
   const [userId] = useState('MC-0142');
   const [search, setSearch] = useState('');
   const [destinationId, setDestinationId] = useState('');
+  const [customDestination, setCustomDestination] = useState<string | null>(null);
   const [consultationAt, setConsultationAt] = useState('');
   const [mobilityNeeds, setMobilityNeeds] = useState<string[]>([]);
+  const [recorrenciaSemanal, setRecorrenciaSemanal] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<PedidoResponse | null>(null);
@@ -21,7 +28,26 @@ export default function App() {
   const filteredDestinations = DESTINATIONS.filter((destination) =>
     destination.name.toLocaleLowerCase('pt-PT').includes(search.toLocaleLowerCase('pt-PT'))
   );
-  const selectedDestination = DESTINATIONS.find((destination) => destination.id === destinationId);
+  const selectedDestination =
+    destinationId === CUSTOM_DESTINATION_ID
+      ? { id: CUSTOM_DESTINATION_ID, name: customDestination ?? '' }
+      : DESTINATIONS.find((destination) => destination.id === destinationId);
+  const customSearch = search.trim();
+  const showCustomOption =
+    customSearch.length > 0 &&
+    !DESTINATIONS.some(
+      (destination) => destination.name.toLocaleLowerCase('pt-PT') === customSearch.toLocaleLowerCase('pt-PT')
+    );
+
+  function selectCatalogDestination(id: string) {
+    setDestinationId(id);
+    setCustomDestination(null);
+  }
+
+  function selectCustomDestination() {
+    setDestinationId(CUSTOM_DESTINATION_ID);
+    setCustomDestination(customSearch);
+  }
 
   function toggleNeed(id: string) {
     setMobilityNeeds((current) =>
@@ -54,7 +80,9 @@ export default function App() {
         userId,
         destinationId,
         consultationAt,
-        mobilityNeeds
+        mobilityNeeds,
+        recorrenciaSemanal,
+        customDestination: customDestination ?? undefined
       });
       const options = await obterOpcoes(created.requestId);
       setResult({ ...created, options });
@@ -122,13 +150,25 @@ export default function App() {
                 <button
                   type="button"
                   className={destination.id === destinationId ? 'option selected' : 'option'}
-                  onClick={() => setDestinationId(destination.id)}
+                  onClick={() => selectCatalogDestination(destination.id)}
                   data-testid={`destination-${destination.id}`}
                 >
                   {destination.name}
                 </button>
               </li>
             ))}
+            {showCustomOption ? (
+              <li>
+                <button
+                  type="button"
+                  className={destinationId === CUSTOM_DESTINATION_ID ? 'option selected' : 'option'}
+                  onClick={selectCustomDestination}
+                  data-testid="destination-custom"
+                >
+                  Usar «{customSearch}» como destino não listado
+                </button>
+              </li>
+            ) : null}
           </ul>
           {selectedDestination ? (
             <p className="selected" data-testid="selected-destination">
@@ -145,6 +185,15 @@ export default function App() {
             onChange={(event) => setConsultationAt(event.target.value)}
             data-testid="consultation-at"
           />
+          <label className="choice">
+            <input
+              type="checkbox"
+              checked={recorrenciaSemanal}
+              onChange={(event) => setRecorrenciaSemanal(event.target.checked)}
+              data-testid="recorrencia-semanal"
+            />
+            Repetir semanalmente por 4 semanas
+          </label>
         </fieldset>
 
         <fieldset>
@@ -189,6 +238,35 @@ export default function App() {
           <p className="success" data-testid="notification-status">
             Coordenação da IPSS notificada — {result.notification?.recipient ?? 'coordenacao@acompanhar.pt'}
           </p>
+          {result.validationLabel ? (
+            <p className="selected" data-testid="validation-label">
+              {result.validationLabel}
+            </p>
+          ) : null}
+          {result.requests && result.requests.length > 1 ? (
+            <section className="series">
+              <h3>Pedidos da série</h3>
+              <p className="selected" data-testid="series-id">
+                Série: {result.seriesId}
+              </p>
+              <ol className="options-list" data-testid="series-requests">
+                {result.requests.map((request) => (
+                  <li key={request.requestId} data-testid="series-request">
+                    <strong data-testid="series-request-id">#{request.requestId}</strong>
+                    <span data-testid="series-request-date">
+                      {formatDateTime(request.consultationAt)}
+                    </span>
+                    <span>{request.status}</span>
+                    {request.validationLabel ? (
+                      <span className="selected" data-testid="series-validation-label">
+                        {request.validationLabel}
+                      </span>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
           <h3>Opções de transporte compatíveis</h3>
           <ol className="options-list" data-testid="transport-options">
             {result.options.map((option) => (

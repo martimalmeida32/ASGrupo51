@@ -6,6 +6,9 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { z } from 'zod';
 import {
+  addDaysToDateTime,
+  CUSTOM_DESTINATION_ID,
+  CUSTOM_DESTINATION_LABEL,
   DESTINATIONS,
   INITIAL_STATUS,
   INITIAL_STATUS_LABEL,
@@ -38,7 +41,10 @@ db.exec(`
     consultation_at TEXT NOT NULL,
     mobility_profile TEXT NOT NULL,
     status TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    series_id TEXT,
+    custom_destination INTEGER NOT NULL DEFAULT 0,
+    validation_label TEXT
   );
   CREATE TABLE IF NOT EXISTS notifications (
     notification_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,13 +55,24 @@ db.exec(`
   );
 `);
 
+const columns = db.prepare('PRAGMA table_info(trip_requests)').all().map((column) => column.name);
+if (!columns.includes('series_id')) db.exec('ALTER TABLE trip_requests ADD COLUMN series_id TEXT');
+if (!columns.includes('custom_destination')) {
+  db.exec('ALTER TABLE trip_requests ADD COLUMN custom_destination INTEGER NOT NULL DEFAULT 0');
+}
+if (!columns.includes('validation_label')) {
+  db.exec('ALTER TABLE trip_requests ADD COLUMN validation_label TEXT');
+}
+
 const pedidoSchema = z.object({
   submissionId: z.string().min(1).optional(),
   requesterType: z.enum(['proprio-utente', 'familiar-cuidador']),
   userId: z.string().min(1),
   destinationId: z.string().min(1),
   consultationAt: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/),
-  mobilityNeeds: z.array(z.enum(MOBILITY_NEED_IDS)).min(1)
+  mobilityNeeds: z.array(z.enum(MOBILITY_NEED_IDS)).min(1),
+  recorrenciaSemanal: z.boolean().optional(),
+  customDestination: z.string().min(1).optional()
 });
 
 function nowIso() {
@@ -81,6 +98,9 @@ function rowToPedido(row) {
     mobilityProfile: mobilityProfileLabel(needs),
     destination: row.destination,
     consultationAt: row.consultation_at,
+    seriesId: row.series_id ?? `SER-${row.request_id}`,
+    customDestination: Boolean(row.custom_destination),
+    validationLabel: row.validation_label ?? null,
     notification: notification
       ? {
           recipient: notification.recipient,
@@ -92,6 +112,15 @@ function rowToPedido(row) {
   };
 }
 
+function buildSeriesResponse(row) {
+  const pedido = rowToPedido(row);
+  const rows = db
+    .prepare('SELECT * FROM trip_requests WHERE series_id = ? OR request_id = ? ORDER BY request_id')
+    .all(pedido.seriesId, row.request_id);
+
+  return { ...pedido, requests: rows.map((item) => rowToPedido(item)) };
+}
+
 function findPedido(requestId) {
   const row = db.prepare('SELECT * FROM trip_requests WHERE request_id = ?').get(requestId);
   return row ? rowToPedido(row) : null;
@@ -99,7 +128,7 @@ function findPedido(requestId) {
 
 function findSubmission(submissionId) {
   const row = db.prepare('SELECT * FROM trip_requests WHERE submission_id = ?').get(submissionId);
-  return row ? rowToPedido(row) : null;
+  return row ? buildSeriesResponse(row) : null;
 }
 
 const app = express();
@@ -120,54 +149,77 @@ app.post('/pedidos', (req, res) => {
     if (existing) return res.status(200).json(existing);
   }
 
-  const destination = DESTINATIONS.find((item) => item.id === input.destinationId);
-  if (!destination) {
+  const isCustom = input.destinationId === CUSTOM_DESTINATION_ID;
+  const customName = input.customDestination?.trim() ?? '';
+  const destination = isCustom
+    ? { id: CUSTOM_DESTINATION_ID, name: customName }
+    : DESTINATIONS.find((item) => item.id === input.destinationId);
+  if (!destination || !destination.name) {
     return res.status(400).json({ error: 'A unidade de saúde selecionada não está no catálogo.' });
   }
 
-  const consultationAt = normalizeDateTime(input.consultationAt);
-  const advance = validateAdvance(consultationAt, nowIso());
-  if (!advance.valid) {
-    return res.status(422).json({ error: advance.message });
+  const recurrence = input.recorrenciaSemanal === true;
+  const dates = recurrence
+    ? Array.from({ length: 5 }, (_, index) => addDaysToDateTime(input.consultationAt, index * 7))
+    : [input.consultationAt];
+  if (dates.some((date) => !date)) {
+    return res.status(400).json({ error: 'Data e hora da consulta inválidas.' });
+  }
+
+  const reference = nowIso();
+  for (const date of dates) {
+    const advance = validateAdvance(normalizeDateTime(date), reference);
+    if (!advance.valid) return res.status(422).json({ error: advance.message });
   }
 
   const createdAt = nowIso();
   const count = db.prepare('SELECT COUNT(*) AS total FROM trip_requests').get().total;
-  const requestId = `PED-${104 + count}`;
+  const requestIds = dates.map((_, index) => `PED-${104 + count + index}`);
   const submissionId = input.submissionId ?? randomUUID();
+  const seriesId = recurrence ? `SER-${randomUUID().slice(0, 8)}` : null;
+  const validationLabel = isCustom ? CUSTOM_DESTINATION_LABEL : null;
   const needs = [...new Set(input.mobilityNeeds)];
   const recipient = 'coordenacao@acompanhar.pt';
-  const message = `Novo pedido ${requestId} para ${destination.name} em ${consultationAt}.`;
 
   try {
     db.exec('BEGIN');
-    db.prepare(
-      `INSERT INTO trip_requests (
-        request_id, submission_id, user_id, requester_type, destination_id,
-        destination, consultation_at, mobility_profile, status, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      requestId,
-      submissionId,
-      input.userId,
-      input.requesterType,
-      destination.id,
-      destination.name,
-      consultationAt,
-      JSON.stringify(needs),
-      INITIAL_STATUS,
-      createdAt
-    );
-    db.prepare(
-      'INSERT INTO notifications (request_id, recipient, message, created_at) VALUES (?, ?, ?, ?)'
-    ).run(requestId, recipient, message, createdAt);
+    dates.forEach((date, index) => {
+      const requestId = requestIds[index];
+      const consultationAt = normalizeDateTime(date);
+      const submissionForRow = index === 0 ? submissionId : `${submissionId}-${index}`;
+      db.prepare(
+        `INSERT INTO trip_requests (
+          request_id, submission_id, user_id, requester_type, destination_id,
+          destination, consultation_at, mobility_profile, status, created_at,
+          series_id, custom_destination, validation_label
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        requestId,
+        submissionForRow,
+        input.userId,
+        input.requesterType,
+        destination.id,
+        destination.name,
+        consultationAt,
+        JSON.stringify(needs),
+        INITIAL_STATUS,
+        createdAt,
+        seriesId,
+        isCustom ? 1 : 0,
+        validationLabel
+      );
+      db.prepare(
+        'INSERT INTO notifications (request_id, recipient, message, created_at) VALUES (?, ?, ?, ?)'
+      ).run(requestId, recipient, `Novo pedido ${requestId} para ${destination.name} em ${consultationAt}.`, createdAt);
+    });
     db.exec('COMMIT');
   } catch (error) {
     db.exec('ROLLBACK');
     throw error;
   }
 
-  return res.status(201).json(findPedido(requestId));
+  const firstRow = db.prepare('SELECT * FROM trip_requests WHERE request_id = ?').get(requestIds[0]);
+  return res.status(201).json(buildSeriesResponse(firstRow));
 });
 
 app.get('/pedidos/:id/opcoes', (req, res) => {

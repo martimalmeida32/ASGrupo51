@@ -7,6 +7,8 @@ export interface CreatePedidoInput {
   destinationId: string;
   consultationAt: string;
   mobilityNeeds: string[];
+  recorrenciaSemanal?: boolean;
+  customDestination?: string;
 }
 
 export interface TransportOption {
@@ -28,6 +30,10 @@ export interface PedidoResponse {
   mobilityProfile: string;
   destination: string;
   consultationAt: string;
+  seriesId: string;
+  customDestination: boolean;
+  validationLabel: string | null;
   notification: NotificationInfo | null;
   options: TransportOption[];
+  requests?: PedidoResponse[];
 }

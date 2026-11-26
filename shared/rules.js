@@ -17,6 +17,9 @@ export const DESTINATIONS = [
   { id: 'centro-saude-aveiro', name: 'Centro de Saúde de Aveiro' }
 ];
 
+export const CUSTOM_DESTINATION_ID = '__custom__';
+export const CUSTOM_DESTINATION_LABEL = 'Destino não listado - validação prévia';
+
 export const INITIAL_STATUS = 'A_ESCOLHER_O_MEIO';
 export const INITIAL_STATUS_LABEL = 'A escolher o meio';
 export const ADVANCE_LIMIT_MS = 24 * 60 * 60 * 1000;
@@ -26,6 +29,13 @@ export function normalizeDateTime(value) {
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value)) return `${value}:00Z`;
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(value)) return `${value}Z`;
   return value;
+}
+
+export function addDaysToDateTime(value, days) {
+  const date = new Date(normalizeDateTime(value));
+  if (Number.isNaN(date.getTime())) return '';
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 16);
 }
 
 export function validateAdvance(consultationAt, now) {
